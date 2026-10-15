@@ -34,7 +34,7 @@ window advances, and identities unused for 35 days are removed. App writes are d
 refresh; the one-shot CLI drains pending writes before it exits.
 
 The append-only scanner is adapted from Runway (mstallone/runway, MIT). The Codex line scan checks
-event markers in one pass, adapted from Runway (mstallone/runway) #47, MIT.
+event markers in one pass, also adapted from Runway #45.
 
 ## When a fetch fails
 
