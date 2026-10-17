@@ -27,9 +27,10 @@ enum TokenRefreshOutcome: Sendable {
 /// Google Cloud Code endpoints, and the Google OAuth token refresh.
 struct AntigravityUsageClient: Sendable {
     static let lsService = "exa.language_server_pb.LanguageServerService"
+    // The daily endpoint can omit Gemini quotas from a successful response; prefer production.
     static let cloudCodeURLs = [
-        "https://daily-cloudcode-pa.googleapis.com",
-        "https://cloudcode-pa.googleapis.com"
+        "https://cloudcode-pa.googleapis.com",
+        "https://daily-cloudcode-pa.googleapis.com"
     ]
     static let fetchModelsPath = "/v1internal:fetchAvailableModels"
     static let loadCodeAssistPath = "/v1internal:loadCodeAssist"
@@ -116,38 +117,27 @@ struct AntigravityUsageClient: Sendable {
         return .unavailable
     }
 
-    /// POST a Cloud Code endpoint on every base URL concurrently and return each 2xx body in base-URL
-    /// order. The hosts can disagree: `daily-cloudcode-pa` has answered the quota summary with only the
-    /// Claude group while `cloudcode-pa` also returned Gemini, so a caller merging by id needs both.
-    /// Any 2xx wins; otherwise a 401/403 on any base is `.authFailed`, and anything else `.unavailable`.
-    /// When the first base answers with a body `isComplete` accepts, the other requests are cancelled:
-    /// callers merge first-wins, so a later answer couldn't change the result and a stalled host would
-    /// only delay the refresh.
+    /// POST a Cloud Code endpoint on each base URL in order and return every 2xx body in base-URL order.
+    /// The hosts can disagree: `daily-cloudcode-pa` has answered the quota summary with only the Claude
+    /// group while `cloudcode-pa` also returned Gemini, so a caller merging by id may need both. Stops
+    /// after the first base when its 2xx body is one `isComplete` accepts: callers merge first-wins, so
+    /// a later answer couldn't change the result. Any 2xx wins; otherwise a 401/403 on any base is
+    /// `.authFailed`, and anything else `.unavailable`.
     func cloudCodeAllHosts(
         path: String,
         token: String,
         userAgent: String,
         body: [String: String],
-        isComplete: @escaping @Sendable (Data) -> Bool = { _ in false }
+        isComplete: (Data) -> Bool = { _ in false }
     ) async -> CloudCodeAllHostsOutcome {
         let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
-        let http = self.http
-        let responses = await withTaskGroup(of: (Int, HTTPResponse?).self) { group in
-            for (index, base) in Self.cloudCodeURLs.enumerated() {
-                guard let url = URL(string: base + path) else { continue }
-                let request = Self.cloudCodeRequest(url: url, token: token, userAgent: userAgent, payload: payload)
-                group.addTask { (index, try? await http.send(request)) }
-            }
-            var byIndex: [Int: HTTPResponse] = [:]
-            for await (index, response) in group {
-                guard let response else { continue }
-                byIndex[index] = response
-                if index == 0, (200..<300).contains(response.statusCode), isComplete(response.body) {
-                    group.cancelAll()
-                    break
-                }
-            }
-            return byIndex.sorted { $0.key < $1.key }.map(\.value)
+        var responses: [HTTPResponse] = []
+        for (index, base) in Self.cloudCodeURLs.enumerated() {
+            guard let url = URL(string: base + path) else { continue }
+            let request = Self.cloudCodeRequest(url: url, token: token, userAgent: userAgent, payload: payload)
+            guard let response = try? await http.send(request) else { continue }
+            responses.append(response)
+            if index == 0, (200..<300).contains(response.statusCode), isComplete(response.body) { break }
         }
         let bodies = responses.filter { (200..<300).contains($0.statusCode) }.map(\.body)
         if !bodies.isEmpty { return .ok(bodies) }
