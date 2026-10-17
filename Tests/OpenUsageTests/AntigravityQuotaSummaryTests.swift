@@ -225,6 +225,60 @@ final class AntigravityQuotaSummaryTests: XCTestCase {
         XCTAssertFalse(routing.requests.contains { $0.url.path == AntigravityUsageClient.retrieveQuotaPath })
     }
 
+    /// Regression: on 2026-10-17 `daily-cloudcode-pa` answered with only the Claude group while
+    /// `cloudcode-pa` returned both, and taking the first 2xx host left Session/Weekly at "No data".
+    @MainActor
+    func testCloudCodeSummaryMergesBucketsAcrossHostsWhenOneOmitsAPool() async {
+        let claudeOnly = """
+        {"groups":[{"displayName":"Claude and GPT models","buckets":[
+          {"bucketId":"3p-weekly","remainingFraction":0.8,"resetTime":"2026-07-06T07:00:00Z"},
+          {"bucketId":"3p-5h","remainingFraction":1,"resetTime":"2026-07-02T15:30:00Z"}
+        ]}]}
+        """
+        let groupsJSON = fullGroupsJSON
+        let routing = RoutingHTTPClient { request in
+            guard request.url.path.contains("retrieveUserQuotaSummary") else {
+                return HTTPResponse(statusCode: 404, headers: [:], body: Data())
+            }
+            let body = request.url.host == "daily-cloudcode-pa.googleapis.com" ? claudeOnly : "{\(groupsJSON)}"
+            return HTTPResponse(statusCode: 200, headers: [:], body: Data(body.utf8))
+        }
+        let provider = makeCloudCodeProvider(routing: routing)
+
+        let snapshot = await provider.refresh()
+        XCTAssertEqual(snapshot.lines.map(\.label), ["Session", "Weekly", "Claude", "Claude Weekly"])
+        // Gemini comes from the production host; the Claude buckets from the daily host (first wins).
+        XCTAssertEqual(snapshot.lines.map { used($0) }, [25, 10, 0, 20])
+    }
+
+    func testMergedSummariesTakeFirstUsableBucketPerID() {
+        let first = #"{"groups":[{"buckets":[{"bucketId":"gemini-5h"},{"bucketId":"3p-5h","remainingFraction":0.5}]}]}"#
+        let second = #"{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":0.75},{"bucketId":"3p-5h","remainingFraction":0.1}]}]}"#
+        let lines = AntigravityUsageMapper.parseQuotaSummaries([Data(first.utf8), Data("not json".utf8), Data(second.utf8)])
+        XCTAssertEqual(lines?.map(\.label), ["Session", "Claude"])
+        XCTAssertEqual(lines?.map { used($0) }, [25, 50])
+        XCTAssertNil(AntigravityUsageMapper.parseQuotaSummaries([Data("{}".utf8)]))
+    }
+
+    @MainActor
+    func testCloudCodeSummaryFromOneHostSurvivesAuthFailureOnTheOther() async {
+        let groupsJSON = fullGroupsJSON
+        let routing = RoutingHTTPClient { request in
+            guard request.url.path.contains("retrieveUserQuotaSummary") else {
+                return HTTPResponse(statusCode: 404, headers: [:], body: Data())
+            }
+            if request.url.host == "cloudcode-pa.googleapis.com" {
+                return HTTPResponse(statusCode: 403, headers: [:], body: Data())
+            }
+            return HTTPResponse(statusCode: 200, headers: [:], body: Data("{\(groupsJSON)}".utf8))
+        }
+        let provider = makeCloudCodeProvider(routing: routing)
+
+        let snapshot = await provider.refresh()
+        XCTAssertNil(snapshot.errorCategory)
+        XCTAssertEqual(snapshot.lines.map(\.label), ["Session", "Weekly", "Claude", "Claude Weekly"])
+    }
+
     // MARK: - Provider integration: language-server transport
 
     @MainActor

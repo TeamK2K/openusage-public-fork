@@ -8,6 +8,13 @@ enum CloudCodeOutcome: Sendable {
     case unavailable
 }
 
+/// Outcome of a Cloud Code call made on every base URL: the 2xx bodies in base-URL order.
+enum CloudCodeAllHostsOutcome: Sendable {
+    case ok([Data])
+    case authFailed
+    case unavailable
+}
+
 /// Result of a Google OAuth token refresh, split so a dead refresh token reads as expired auth while a
 /// 5xx/network failure reads as a transient outage.
 enum TokenRefreshOutcome: Sendable {
@@ -75,23 +82,52 @@ struct AntigravityUsageClient: Sendable {
         let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
         for base in Self.cloudCodeURLs {
             guard let url = URL(string: base + path) else { continue }
-            let request = HTTPRequest(
-                method: "POST",
-                url: url,
-                headers: [
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer \(token)",
-                    "User-Agent": userAgent
-                ],
-                body: payload,
-                timeout: 15
-            )
+            let request = Self.cloudCodeRequest(url: url, token: token, userAgent: userAgent, payload: payload)
             guard let response = try? await http.send(request) else { continue }
             if response.statusCode == 401 || response.statusCode == 403 { return .authFailed }
             if (200..<300).contains(response.statusCode) { return .ok(response.body) }
         }
         return .unavailable
+    }
+
+    /// POST a Cloud Code endpoint on every base URL concurrently and return each 2xx body in base-URL
+    /// order. The hosts can disagree: `daily-cloudcode-pa` has answered the quota summary with only the
+    /// Claude group while `cloudcode-pa` also returned Gemini, so a caller merging by id needs both.
+    /// Any 2xx wins; otherwise a 401/403 on any base is `.authFailed`, and anything else `.unavailable`.
+    func cloudCodeAllHosts(path: String, token: String, userAgent: String, body: [String: String]) async -> CloudCodeAllHostsOutcome {
+        let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
+        let http = self.http
+        let responses = await withTaskGroup(of: (Int, HTTPResponse?).self) { group in
+            for (index, base) in Self.cloudCodeURLs.enumerated() {
+                guard let url = URL(string: base + path) else { continue }
+                let request = Self.cloudCodeRequest(url: url, token: token, userAgent: userAgent, payload: payload)
+                group.addTask { (index, try? await http.send(request)) }
+            }
+            var byIndex: [Int: HTTPResponse] = [:]
+            for await (index, response) in group {
+                if let response { byIndex[index] = response }
+            }
+            return byIndex.sorted { $0.key < $1.key }.map(\.value)
+        }
+        let bodies = responses.filter { (200..<300).contains($0.statusCode) }.map(\.body)
+        if !bodies.isEmpty { return .ok(bodies) }
+        if responses.contains(where: { $0.statusCode == 401 || $0.statusCode == 403 }) { return .authFailed }
+        return .unavailable
+    }
+
+    private static func cloudCodeRequest(url: URL, token: String, userAgent: String, payload: Data) -> HTTPRequest {
+        HTTPRequest(
+            method: "POST",
+            url: url,
+            headers: [
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": "Bearer \(token)",
+                "User-Agent": userAgent
+            ],
+            body: payload,
+            timeout: 15
+        )
     }
 
     /// Exchange a Google refresh token for a fresh access token. Distinguishes a dead refresh token

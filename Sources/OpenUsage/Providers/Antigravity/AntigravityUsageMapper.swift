@@ -52,16 +52,28 @@ enum AntigravityUsageMapper {
     /// bucket with a missing/unusable `remainingFraction` drops its line (the row reads "No data")
     /// rather than fabricating 0% or 100%.
     static func parseQuotaSummary(_ data: Data) -> [MetricLine]? {
-        guard let envelope = try? JSONDecoder().decode(QuotaSummaryEnvelope.self, from: data),
-              let groups = envelope.response?.groups ?? envelope.groups
-        else {
-            // Callers only parse 2xx bodies, so an undecodable one is schema drift — say so loudly.
-            AppLog.warn(LogTag.plugin("antigravity"), "quota summary response has no decodable groups; treating as not-a-summary")
-            return nil
+        parseQuotaSummaries([data])
+    }
+
+    /// Several `RetrieveUserQuotaSummary` bodies (one per Cloud Code host) merged by bucket id: the
+    /// first usable bucket for each id wins. One host can omit a whole pool (seen 2026-10-17: the daily
+    /// host returned only the Claude group), so no single body is trusted to be complete. Nil only when
+    /// no body is a summary; otherwise the same rules as `parseQuotaSummary` apply.
+    static func parseQuotaSummaries(_ bodies: [Data]) -> [MetricLine]? {
+        let bucketLists = bodies.compactMap { data -> [QuotaSummaryBucket]? in
+            guard let envelope = try? JSONDecoder().decode(QuotaSummaryEnvelope.self, from: data),
+                  let groups = envelope.response?.groups ?? envelope.groups
+            else {
+                // Callers only parse 2xx bodies, so an undecodable one is schema drift — say so loudly.
+                AppLog.warn(LogTag.plugin("antigravity"), "quota summary response has no decodable groups; treating as not-a-summary")
+                return nil
+            }
+            return groups.flatMap { $0.buckets ?? [] }
         }
+        guard !bucketLists.isEmpty else { return nil }
 
         var pooled: [String: (fraction: Double, resetTime: Date?)] = [:]
-        for bucket in groups.flatMap({ $0.buckets ?? [] }) {
+        for bucket in bucketLists.joined() {
             guard let id = bucket.bucketId, summaryBuckets.contains(where: { $0.bucketID == id }) else {
                 AppLog.warn(LogTag.plugin("antigravity"), "quota summary: skipping unrecognized bucket id '\(bucket.bucketId ?? "<absent>")'")
                 continue

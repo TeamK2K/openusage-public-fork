@@ -287,12 +287,13 @@ final class AntigravityProvider: ProviderRuntime {
         // Authoritative first: the quota summary (merged pools + weekly windows). A parsed summary —
         // even one with zero usable buckets — is the answer and must never fall into the legacy chain
         // below, which fabricates "fully used" from missing quota info. A 404 (build without the RPC)
-        // reads as `.unavailable` and falls through.
-        switch await usageClient.cloudCode(path: AntigravityUsageClient.quotaSummaryPath, token: token, userAgent: "antigravity", body: [:]) {
+        // reads as `.unavailable` and falls through. Both hosts are asked and their buckets merged by id,
+        // because one host can omit a whole pool.
+        switch await usageClient.cloudCodeAllHosts(path: AntigravityUsageClient.quotaSummaryPath, token: token, userAgent: "antigravity", body: [:]) {
         case .authFailed:
             return .authFailed
-        case .ok(let data):
-            if let lines = AntigravityUsageMapper.parseQuotaSummary(data) {
+        case .ok(let bodies):
+            if let lines = AntigravityUsageMapper.parseQuotaSummaries(bodies) {
                 return .success(StrategyResult(plan: await loadPlan(token: token), lines: lines))
             }
             // 2xx but not a summary payload — the parser warned; fall to the legacy chain.
