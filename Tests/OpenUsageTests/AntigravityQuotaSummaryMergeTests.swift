@@ -36,5 +36,8 @@ final class AntigravityQuotaSummaryMergeTests: XCTestCase {
         let noFraction = #"{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":1},{"bucketId":"gemini-weekly"},{"bucketId":"3p-5h","remainingFraction":1},{"bucketId":"3p-weekly","remainingFraction":1}]}]}"#
         XCTAssertFalse(AntigravityUsageMapper.isCompleteSummary(Data(noFraction.utf8)))
         XCTAssertFalse(AntigravityUsageMapper.isCompleteSummary(Data("not json".utf8)))
+        let weeklyInArgon = #"{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":1},{"bucketId":"3p-5h","remainingFraction":1},{"bucketId":"3p-weekly","remainingFraction":1}]},{"displayName":"Gemini 4 Argon","buckets":[{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":1}]}]}"#
+        XCTAssertFalse(AntigravityUsageMapper.isCompleteSummary(Data(weeklyInArgon.utf8)),
+                       "a shared bucket id inside the Argon group is not a usable shared-pool window")
     }
 }

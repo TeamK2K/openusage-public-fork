@@ -139,7 +139,9 @@ enum AntigravityUsageMapper {
     /// required: accounts without it never report it.
     static func isCompleteSummary(_ data: Data) -> Bool {
         guard let groups = summaryGroups(data) else { return false }
-        let usable = Set(groups.flatMap { $0.buckets ?? [] }.compactMap { bucket in
+        // Same group rule as the merge: a shared bucket id inside the Argon group never yields a meter.
+        let shared = groups.filter { $0.displayName != argonGroupName }
+        let usable = Set(shared.flatMap { $0.buckets ?? [] }.compactMap { bucket in
             bucket.remainingFraction?.isFinite == true ? bucket.bucketId : nil
         })
         return summaryBuckets.allSatisfy { usable.contains($0.bucketID) }
