@@ -120,7 +120,16 @@ struct AntigravityUsageClient: Sendable {
     /// order. The hosts can disagree: `daily-cloudcode-pa` has answered the quota summary with only the
     /// Claude group while `cloudcode-pa` also returned Gemini, so a caller merging by id needs both.
     /// Any 2xx wins; otherwise a 401/403 on any base is `.authFailed`, and anything else `.unavailable`.
-    func cloudCodeAllHosts(path: String, token: String, userAgent: String, body: [String: String]) async -> CloudCodeAllHostsOutcome {
+    /// When the first base answers with a body `isComplete` accepts, the other requests are cancelled:
+    /// callers merge first-wins, so a later answer couldn't change the result and a stalled host would
+    /// only delay the refresh.
+    func cloudCodeAllHosts(
+        path: String,
+        token: String,
+        userAgent: String,
+        body: [String: String],
+        isComplete: @escaping @Sendable (Data) -> Bool = { _ in false }
+    ) async -> CloudCodeAllHostsOutcome {
         let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
         let http = self.http
         let responses = await withTaskGroup(of: (Int, HTTPResponse?).self) { group in
@@ -131,7 +140,12 @@ struct AntigravityUsageClient: Sendable {
             }
             var byIndex: [Int: HTTPResponse] = [:]
             for await (index, response) in group {
-                if let response { byIndex[index] = response }
+                guard let response else { continue }
+                byIndex[index] = response
+                if index == 0, (200..<300).contains(response.statusCode), isComplete(response.body) {
+                    group.cancelAll()
+                    break
+                }
             }
             return byIndex.sorted { $0.key < $1.key }.map(\.value)
         }

@@ -61,14 +61,12 @@ enum AntigravityUsageMapper {
     /// no body is a summary; otherwise the same rules as `parseQuotaSummary` apply.
     static func parseQuotaSummaries(_ bodies: [Data]) -> [MetricLine]? {
         let bucketLists = bodies.compactMap { data -> [QuotaSummaryBucket]? in
-            guard let envelope = try? JSONDecoder().decode(QuotaSummaryEnvelope.self, from: data),
-                  let groups = envelope.response?.groups ?? envelope.groups
-            else {
+            guard let buckets = summaryBucketList(data) else {
                 // Callers only parse 2xx bodies, so an undecodable one is schema drift — say so loudly.
                 AppLog.warn(LogTag.plugin("antigravity"), "quota summary response has no decodable groups; treating as not-a-summary")
                 return nil
             }
-            return groups.flatMap { $0.buckets ?? [] }
+            return buckets
         }
         guard !bucketLists.isEmpty else { return nil }
 
@@ -90,6 +88,25 @@ enum AntigravityUsageMapper {
             guard let entry = pooled[spec.bucketID] else { return nil }
             return line(pool: spec.label, fraction: entry.fraction, resetTime: entry.resetTime, periodMs: spec.periodMs)
         }
+    }
+
+    /// Whether one summary body already has a usable fraction for all four known buckets, so no other
+    /// host's answer could add or change a meter under the first-wins merge.
+    static func isCompleteSummary(_ data: Data) -> Bool {
+        guard let buckets = summaryBucketList(data) else { return false }
+        let usable = Set(buckets.compactMap { bucket in
+            bucket.remainingFraction?.isFinite == true ? bucket.bucketId : nil
+        })
+        return summaryBuckets.allSatisfy { usable.contains($0.bucketID) }
+    }
+
+    private static func summaryBucketList(_ data: Data) -> [QuotaSummaryBucket]? {
+        guard let envelope = try? JSONDecoder().decode(QuotaSummaryEnvelope.self, from: data),
+              let groups = envelope.response?.groups ?? envelope.groups
+        else {
+            return nil
+        }
+        return groups.flatMap { $0.buckets ?? [] }
     }
 
     // MARK: - Response parsing (legacy per-model endpoints)

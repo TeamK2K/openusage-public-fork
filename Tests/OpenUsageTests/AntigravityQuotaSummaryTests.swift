@@ -267,6 +267,35 @@ final class AntigravityQuotaSummaryTests: XCTestCase {
         XCTAssertNil(AntigravityUsageMapper.parseQuotaSummaries([Data("{}".utf8)]))
     }
 
+    func testIsCompleteSummaryNeedsAllFourUsableBuckets() {
+        XCTAssertTrue(AntigravityUsageMapper.isCompleteSummary(Data("{\"response\":{\(fullGroupsJSON)}}".utf8)))
+        let missingWeekly = #"{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":1},{"bucketId":"3p-5h","remainingFraction":1},{"bucketId":"3p-weekly","remainingFraction":1}]}]}"#
+        XCTAssertFalse(AntigravityUsageMapper.isCompleteSummary(Data(missingWeekly.utf8)))
+        let noFraction = #"{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":1},{"bucketId":"gemini-weekly"},{"bucketId":"3p-5h","remainingFraction":1},{"bucketId":"3p-weekly","remainingFraction":1}]}]}"#
+        XCTAssertFalse(AntigravityUsageMapper.isCompleteSummary(Data(noFraction.utf8)))
+        XCTAssertFalse(AntigravityUsageMapper.isCompleteSummary(Data("not json".utf8)))
+    }
+
+    @MainActor
+    func testCompletePreferredHostSummaryDoesNotWaitForAStalledHost() async {
+        let groupsJSON = fullGroupsJSON
+        let routing = RoutingHTTPClient { request in
+            guard request.url.path.contains("retrieveUserQuotaSummary") else {
+                return HTTPResponse(statusCode: 404, headers: [:], body: Data())
+            }
+            if request.url.host == "cloudcode-pa.googleapis.com" {
+                try await Task.sleep(for: .seconds(30)) // throws once the request is cancelled
+            }
+            return HTTPResponse(statusCode: 200, headers: [:], body: Data("{\(groupsJSON)}".utf8))
+        }
+        let provider = makeCloudCodeProvider(routing: routing)
+
+        let start = Date()
+        let snapshot = await provider.refresh()
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5)
+        XCTAssertEqual(snapshot.lines.map(\.label), ["Session", "Weekly", "Claude", "Claude Weekly"])
+    }
+
     @MainActor
     func testCloudCodeSummaryFromOneHostSurvivesAuthFailureOnTheOther() async {
         let groupsJSON = fullGroupsJSON
