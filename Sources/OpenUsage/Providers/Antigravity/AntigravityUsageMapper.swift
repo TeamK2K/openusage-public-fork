@@ -150,10 +150,28 @@ enum AntigravityUsageMapper {
         }
     }
 
-    /// Cloud Code `loadCodeAssist` → plan name (paid tier preferred over current tier).
+    /// Google One subscription tiers by `paidTier.id`, which is stabler than the display name.
+    static let paidTierPlans = ["g1-pro-tier": "Pro", "g1-ultra-tier": "Ultra", "g1-ultra-lite-tier": "Ultra Lite"]
+
+    /// Cloud Code `loadCodeAssist` → plan name: a known `paidTier.id` first, then the paid tier's name,
+    /// then the current tier's name.
     static func parseLoadCodeAssistPlan(_ data: Data) -> String? {
         guard let envelope = try? JSONDecoder().decode(CCLoadEnvelope.self, from: data) else { return nil }
+        if let id = envelope.paidTier?.id, let plan = paidTierPlans[id] { return plan }
         return formatPlan(envelope.paidTier?.name ?? envelope.currentTier?.name)
+    }
+
+    /// Log-safe outline of a `loadCodeAssist` body — top-level keys and tier ids only (no project id) —
+    /// for diagnosing a response that yields no plan.
+    static func describeTiers(_ data: Data) -> String {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "undecodable body" }
+        func id(_ tier: Any?) -> String { ((tier as? [String: Any])?["id"] as? String) ?? "<none>" }
+        let allowed = (object["allowedTiers"] as? [Any] ?? []).map(id)
+        let ineligible = (object["ineligibleTiers"] as? [[String: Any]] ?? []).map {
+            "\($0["tierId"] as? String ?? "<none>"):\($0["reasonCode"] as? String ?? "<none>")"
+        }
+        return "keys=\(object.keys.sorted()) currentTier=\(id(object["currentTier"])) paidTier=\(id(object["paidTier"])) "
+            + "allowedTiers=\(allowed) ineligibleTiers=\(ineligible)"
     }
 
     static func parseProject(_ data: Data) -> String? {
@@ -334,7 +352,10 @@ private struct CCLoadEnvelope: Decodable {
     let currentTier: Tier?
     let paidTier: Tier?
 
-    struct Tier: Decodable { let name: String? }
+    struct Tier: Decodable {
+        let id: String?
+        let name: String?
+    }
 }
 
 private struct CCQuotaEnvelope: Decodable {

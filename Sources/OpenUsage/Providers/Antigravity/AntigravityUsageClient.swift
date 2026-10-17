@@ -80,6 +80,32 @@ struct AntigravityUsageClient: Sendable {
     /// next base and finally `.unavailable`.
     func cloudCode(path: String, token: String, userAgent: String, body: [String: String]) async -> CloudCodeOutcome {
         let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
+        return await cloudCode(path: path, token: token, userAgent: userAgent, payload: payload)
+    }
+
+    /// `loadCodeAssist` with Antigravity's client metadata. Without it the response carries only
+    /// `allowedTiers` — no `currentTier`/`paidTier` — so the plan can't be read.
+    func loadCodeAssist(token: String) async -> CloudCodeOutcome {
+        await cloudCode(path: Self.loadCodeAssistPath, token: token, userAgent: Self.clientUserAgent, payload: Self.loadCodeAssistPayload)
+    }
+
+    /// The Antigravity client's own User-Agent shape (`%s/%s (aidev_client; os_type=…; arch=…)` in its
+    /// language server). Google marks other callers `UNSUPPORTED_CLIENT` and drops `paidTier`.
+    static let clientUserAgent: String = {
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "amd64"
+        #endif
+        return "antigravity/2.24.0 (aidev_client; os_type=darwin; arch=\(arch))"
+    }()
+
+    /// `ClientMetadata` enum names as they appear in the Antigravity language server's protos.
+    static let loadCodeAssistPayload = Data(
+        #"{"metadata":{"ideType":"ANTIGRAVITY","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}}"#.utf8
+    )
+
+    private func cloudCode(path: String, token: String, userAgent: String, payload: Data) async -> CloudCodeOutcome {
         for base in Self.cloudCodeURLs {
             guard let url = URL(string: base + path) else { continue }
             let request = Self.cloudCodeRequest(url: url, token: token, userAgent: userAgent, payload: payload)

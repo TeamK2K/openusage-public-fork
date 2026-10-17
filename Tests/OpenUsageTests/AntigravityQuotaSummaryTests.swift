@@ -201,6 +201,13 @@ final class AntigravityQuotaSummaryTests: XCTestCase {
         XCTAssertEqual(snapshot.lines.map { used($0) }, [25, 10, 60, 0])
         XCTAssertFalse(routing.requests.contains { $0.url.path.contains("fetchAvailableModels") },
                        "a parsed summary must not touch the legacy model endpoints")
+
+        // Without Antigravity's client metadata loadCodeAssist omits currentTier/paidTier.
+        let planRequest = routing.requests.first { $0.url.path.contains("loadCodeAssist") }
+        let planBody = planRequest?.body.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        XCTAssertEqual(planBody?["metadata"] as? [String: String], [
+            "ideType": "ANTIGRAVITY", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"
+        ])
     }
 
     @MainActor
