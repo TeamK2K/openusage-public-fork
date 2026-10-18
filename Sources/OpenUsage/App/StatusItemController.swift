@@ -264,10 +264,18 @@ final class StatusItemController: NSObject {
         }
         if panel.isVisible { hidePanel() }
         AppLog.info(.statusItem, "Opening the accounts page")
-        guard NSWorkspace.shared.open(SeatsPageSetting.url) else {
-            AppLog.error(.statusItem, "The browser didn't open \(SeatsPageSetting.url.absoluteString); opening the panel")
-            togglePopover()
-            return
+        // A status-item click leaves this menu-bar app inactive, and macOS only lets an active app
+        // hand focus on: without this the page opened in a browser tab that stayed behind the
+        // front window. Activating first lets `activates` bring the browser forward.
+        NSApp.activate()
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open(SeatsPageSetting.url, configuration: configuration) { [weak self] _, error in
+            guard let error else { return }
+            Task { @MainActor in
+                AppLog.error(.statusItem, "The browser didn't open \(SeatsPageSetting.url.absoluteString) (\(error.localizedDescription)); opening the panel")
+                self?.togglePopover()
+            }
         }
     }
 
