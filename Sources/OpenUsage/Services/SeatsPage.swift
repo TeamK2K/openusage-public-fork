@@ -1,8 +1,9 @@
 import Foundation
 
 /// The concise "which account has room" page the local server serves at `/`. One card per account,
-/// all fitted on one screen, each with its room, status and session / weekly (or monthly) / Fable bars;
-/// the Claude account with the most room is named on top and outlined. It reads `/v1/limits` from the same origin and
+/// all fitted on one screen, named by its email and headed by what is left before its reset and when
+/// that reset comes, then a status and its session / weekly (or monthly) / Fable bars. Cards run
+/// soonest reset first, because room left at a reset is lost; the first one is named on top and outlined. It reads `/v1/limits` from the same origin and
 /// refreshes itself, so it needs nothing beyond the running app. Self-contained: no external assets.
 enum SeatsPage {
     static let html: Data = Data(source.utf8)
@@ -44,12 +45,16 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
 .who { min-width:0; }
 .mid { display:flex; justify-content:space-between; align-items:flex-end; gap:.8em; }
 .kicker { font-size:.72em; color:var(--faint); letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.name { font-size:1.15em; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The account's email is its name: never cut off, it wraps at the @ onto a second line instead. */
+.name { font-size:1.2em; font-weight:650; line-height:1.15; overflow-wrap:anywhere; overflow:hidden;
+        display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .extras { font-size:.78em; color:var(--muted); margin-top:.15em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .room { flex:none; font-size:2.9em; font-weight:700; line-height:1; font-variant-numeric: tabular-nums; }
 .room small { display:block; font-size:.3em; font-weight:500; color:var(--faint); letter-spacing:.05em; margin-top:.3em; }
 .room.warn, .status.warn { color:var(--warn); } .room.out, .status.out { color:var(--out); }
-.status { font-size:.95em; font-weight:600; color:var(--ok); display:flex; align-items:center; gap:.45em; text-align:right; padding-bottom:1.1em; }
+.side { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:.3em; text-align:right; padding-bottom:1.1em; }
+.resetin { font-size:1.05em; font-weight:650; text-wrap:balance; }
+.status { font-size:.85em; font-weight:600; color:var(--ok); display:flex; align-items:center; gap:.45em; }
 .dot { width:.55em; height:.55em; border-radius:50%; background:currentColor; flex:none; }
 .bars { margin-top:auto; display:flex; flex-direction:column; gap:2.6cqh; }
 .meter { display:grid; grid-template-columns: auto 1fr auto; column-gap:.5em; row-gap:.3em; align-items:baseline; }
@@ -107,7 +112,8 @@ function resetText(res, value) {
   if (!res) return "";
   if (!res.resetsAt) return value != null && value >= 100 ? "not started" : "";
   const ms = new Date(res.resetsAt) - Date.now();
-  return (value === 0 ? "back " : "resets ") + (ms < 86400000 ? "in " + left(ms) : stamp(new Date(res.resetsAt).getTime()));
+  return (value === 0 ? "back " : "resets ") +
+    (ms <= 0 ? "now" : ms < 86400000 ? "in " + left(ms) : stamp(new Date(res.resetsAt).getTime()));
 }
 
 // Short weekday + time, minutes only when non-zero: "Tue 3 PM", "Tue 3:30 PM". More than six days
@@ -181,7 +187,32 @@ function toRow(id, p) {
     note = "Runs out " + when;
     noteTitle = soon.name + " on pace to run out " + when + ", before it resets " + stamp(soon.resetMs);
   }
-  return { id, p, bars, score, backMs, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
+  // The room a reset throws away: the tightest limit other than the 5-hour session (the week's or
+  // the month's), and when it resets. The card's headline and the use-first order read these.
+  const longBars = bars.filter(b => b.name !== "Session");
+  const tight = (longBars.length ? longBars : bars).reduce((a, b) => ((b.value ?? 100) < (a.value ?? 100) ? b : a));
+  const leftover = tight.value ?? 100;
+  const resetMs = tight.res.resetsAt ? new Date(tight.res.resetsAt).getTime() : null;
+  const low = bars.reduce((a, b) => ((b.value ?? 100) < (a.value ?? 100) ? b : a)).name;
+  return { id, p, bars, score, leftover, resetMs, low, backMs, note, noteTitle, warn, out, extras: extras(r),
+           isClaude: id.startsWith("claude") };
+}
+
+// Use-first order: the account whose room resets soonest goes first, because room left at a reset
+// is lost. Accounts under 10% come after the rest, and accounts at a limit last, soonest back first.
+function rank(x) { return x.out ? 2 : x.score < 10 ? 1 : 0; }
+function byUseFirst(a, b) {
+  const at = a.out ? a.backMs : a.resetMs, bt = b.out ? b.backMs : b.resetMs;
+  return rank(a) - rank(b) || (at ?? Infinity) - (bt ?? Infinity) || b.leftover - a.leftover;
+}
+
+// An account goes by its email (Claude) or, where the app has no email, its product name.
+function accountName(x) { const n = label(x.id, x.p); return x.isClaude ? n.detail : n.family; }
+function nameEl(text) {
+  const e = el("div", "name"), at = text.indexOf("@");
+  if (at > 0) e.append(text.slice(0, at), document.createElement("wbr"), text.slice(at));
+  else e.textContent = text;
+  return e;
 }
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
@@ -204,21 +235,26 @@ function meter(value, name, res) {
   return box;
 }
 
+// Headline: what is left before the reset and when that reset comes ("91% left · resets in 3d 20h"),
+// then a status: Back in … / Runs out … / <limit> low / Use this one / Ready.
 function card(x, isBest) {
-  const t = tone(x), n = label(x.id, x.p);
+  const t = tone(x);
   const box = el("div", "card" + (isBest ? " best" : "") + (x.p.stale ? " stale" : ""));
   const inner = el("div", "in");
   const who = el("div", "who");
   const kicker = [x.isClaude ? "Claude" : "", x.p.plan || ""].filter(Boolean).join(" · ");
-  who.append(el("div", "kicker", kicker || " "), el("div", "name", x.isClaude ? n.detail : n.family));
+  who.append(el("div", "kicker", kicker || " "), nameEl(accountName(x)));
   who.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
   if (x.extras.length) who.appendChild(el("div", "extras", x.extras.join(" · ")));
-  const room = el("div", "room " + t, x.score + "%");
-  room.appendChild(el("small", null, "ROOM"));
+  const room = el("div", "room " + (x.out ? "out" : x.warn || x.leftover < 25 ? "warn" : "ok"), x.leftover + "%");
+  room.appendChild(el("small", null, "LEFT"));
+  const side = el("div", "side");
+  if (!x.out && x.resetMs) side.appendChild(el("div", "resetin", "resets in " + left(x.resetMs - Date.now())));
   const status = el("div", "status " + t);
-  status.append(el("span", "dot"), x.out || x.warn ? x.note : x.score < 25 ? "Low on room" : isBest ? "Use this one" : "Ready");
+  status.append(el("span", "dot"), x.out || x.warn ? x.note : isBest ? "Use this one" : x.score < 25 ? x.low + " low" : "Ready");
+  side.appendChild(status);
   const mid = el("div", "mid");
-  mid.append(room, status);
+  mid.append(room, side);
   if (x.noteTitle) status.title = x.noteTitle;
   const bars = el("div", "bars");
   for (const b of x.bars) bars.appendChild(meter(b.value, b.name, b.res));
@@ -248,29 +284,26 @@ new ResizeObserver(fit).observe(document.documentElement);
 
 function render(data) {
   const providers = data.providers || {};
-  const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean)
-    .sort((a, b) => (a.out - b.out) || (b.score - a.score));
-  const claude = rows.filter(x => x.isClaude), others = rows.filter(x => !x.isClaude);
+  const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean).sort(byUseFirst);
   const verdict = document.getElementById("verdict"), sub = document.getElementById("sub");
   verdict.textContent = ""; sub.textContent = "";
-  const pool = claude.length ? claude : rows;
-  const best = pool.find(x => !x.out);
+  const best = rows.find(x => !x.out);
   if (!rows.length) {
     verdict.textContent = "No accounts yet";
     sub.textContent = "Turn providers on in the OpenUsage menu bar app and they appear here.";
   } else if (best) {
-    const n = label(best.id, best.p);
-    verdict.append("Use ", n.detail || n.family, el("span", "dim", " · " + best.score + "% room"));
+    const when = best.resetMs ? ", resets in " + left(best.resetMs - Date.now()) : "";
+    verdict.append("Use ", accountName(best), el("span", "dim", " · " + best.leftover + "% left" + when));
     const ready = rows.filter(x => !x.out).length;
-    sub.textContent = ready + " of " + rows.length + " accounts ready · room is an account's tightest limit";
+    sub.textContent = ready + " of " + rows.length + " accounts ready · soonest reset first, because room left at a reset is lost";
   } else {
-    const first = pool.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
-    verdict.textContent = "Every " + (claude.length ? "Claude " : "") + "account is out";
+    const first = rows.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
+    verdict.textContent = "Every account is out";
     sub.textContent = first ? "First one back in " + left(first - Date.now()) : "No reset time reported yet";
   }
   const grid = document.getElementById("cards");
   grid.textContent = "";
-  for (const x of claude.concat(others)) grid.appendChild(card(x, x === best));
+  for (const x of rows) grid.appendChild(card(x, x === best));
   fit();
   // Accounts whose last refresh failed: their card (if any) shows older numbers, so say which.
   const failed = (data.errors || []).map(e => {
