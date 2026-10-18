@@ -22,34 +22,47 @@ enum SeatsPage {
           --bar:#4b95f0; --warn:#e0a640; --out:#f06a6a; }
 }
 * { box-sizing: border-box; }
+/* Fills the browser window and scales with it: type grows from phone to big screen, the rows share
+   the window's height, and under 760px each account becomes a stacked card with labelled bars. */
+html { font-size: clamp(15px, 0.7vw + 0.7vh + 6px, 30px); }
 body { margin:0; background:var(--bg); color:var(--text);
-       font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
-main { max-width: 760px; margin: 40px auto; padding: 0 16px; }
-.best { color:var(--muted); margin: 0 0 12px 4px; }
+       font: 1rem/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+main { min-height:100vh; display:flex; flex-direction:column; padding: clamp(16px, 3vw, 56px); }
+.best { color:var(--muted); margin: 0 0 .8em .25em; font-size:1.15em; overflow-wrap:anywhere; }
 .best b { color:var(--text); font-weight:600; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.row { display:grid; grid-template-columns: minmax(0,1.6fr) 1fr 1fr 1fr minmax(0,1fr); gap:16px;
-       align-items:center; padding:10px 16px; border-top:1px solid var(--line); }
+.card { flex:1; display:flex; flex-direction:column; background:var(--card); border:1px solid var(--line);
+        border-radius:.9em; overflow:hidden; }
+.row { flex:1 1 auto; display:grid; grid-template-columns: minmax(0,1.6fr) 1fr 1fr 1fr minmax(0,1fr);
+       gap:1.2em; align-items:center; padding:.8em 1.2em; border-top:1px solid var(--line); }
 .row:first-child { border-top:none; }
-.head { color:var(--muted); font-size:12px; padding-top:8px; padding-bottom:8px; }
-.name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.name small { color:var(--muted); margin-left:6px; }
+.head { flex:none; color:var(--muted); font-size:.8em; padding-top:.7em; padding-bottom:.7em; }
+.name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:1.1em; }
+.name small { color:var(--muted); margin-left:.4em; font-size:.85em; }
 .acct { min-width:0; }
-.extras { font-size:12px; color:var(--muted); margin-top:2px; }
-.meter { display:flex; align-items:center; gap:8px; }
-.track { flex:1; height:6px; border-radius:3px; background:var(--track); overflow:hidden; }
+.extras { font-size:.85em; color:var(--muted); margin-top:.2em; }
+.meter { display:flex; align-items:center; gap:.6em; }
+.track { flex:1; height:.5em; border-radius:.25em; background:var(--track); overflow:hidden; }
 .fill { height:100%; background:var(--bar); }
 .fill.warn { background:var(--warn); } .fill.out { background:var(--out); }
-.pct { width:40px; text-align:right; color:var(--muted); font-variant-numeric: tabular-nums; }
+.pct { width:3.2em; text-align:right; color:var(--muted); font-variant-numeric: tabular-nums; }
 .pct.out { color:var(--out); }
-.note { text-align:right; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.note { text-align:right; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .note.out { color:var(--out); }
 .note.warn { color:var(--warn); }
 .stale { opacity:.55; }
-footer { color:var(--muted); font-size:12px; margin:10px 4px; }
-.error { color:var(--out); margin: 0 0 12px 4px; }
-.issues { color:var(--warn); font-size:13px; margin: 10px 4px 0; }
-.empty { color:var(--muted); padding:14px 16px; border-top:1px solid var(--line); }
+footer { color:var(--muted); font-size:.85em; margin:.8em .3em 0; }
+.error { color:var(--out); margin: 0 0 .8em .25em; }
+.issues { color:var(--warn); font-size:.9em; margin: .8em .3em 0; }
+.empty { color:var(--muted); padding:1em 1.2em; border-top:1px solid var(--line); }
+@media (max-width: 760px) {
+  .head { display:none; }
+  .row { grid-template-columns: repeat(3, minmax(0,1fr)); grid-template-areas: "acct acct note" "s w f";
+         gap:.6em 1em; padding:.9em 1em; }
+  .acct { grid-area: acct; } .note { grid-area: note; }
+  .meter { flex-wrap:wrap; gap:.2em .5em; }
+  .meter::before { content: attr(data-label); width:100%; font-size:.75em; color:var(--muted); }
+  .pct { width:auto; }
+}
 </style>
 </head>
 <body>
@@ -78,8 +91,9 @@ function label(id, p) {
   return m ? { family: "Claude", detail: m[1] } : { family: raw, detail: p.plan || "" };
 }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function meter(value) {
+function meter(value, label) {
   const box = el("div", "meter"), track = el("div", "track");
+  box.dataset.label = label;
   if (value != null) {
     const fill = el("div", "fill" + (value <= 0 ? " out" : value < 25 ? " warn" : ""));
     fill.style.width = (value <= 0 ? 3 : value) + "%";
@@ -155,7 +169,7 @@ function toRow(id, p) {
   } else if (long && long.resetsAt) {
     note = (long.windowSeconds > 8 * 86400 ? "month " : "week ") + until(long.resetsAt);
   }
-  return { id, p, s, w, f, score, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
+  return { id, p, s, w, f, score, longName, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
 }
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
@@ -179,7 +193,7 @@ function render(data) {
     if (x.extras.length) acct.appendChild(el("div", "extras", x.extras.join(" · ")));
     const note = el("div", "note" + (x.out ? " out" : x.warn ? " warn" : ""), x.note);
     if (x.noteTitle) note.title = x.noteTitle;
-    row.append(acct, meter(x.s), meter(x.w), meter(x.f), note);
+    row.append(acct, meter(x.s, "Session"), meter(x.w, x.longName), meter(x.f, "Fable"), note);
     table.appendChild(row);
   }
   const best = claude.find(x => !x.out);
