@@ -151,31 +151,37 @@ function extras(r) {
   return out;
 }
 
+function title(key) { return key.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase()); }
+
 function toRow(id, p) {
   const r = p.resources || {};
   const session = r.session, long = r.weekly || r.totalUsage, fable = r.fable;
-  if (!session && !long) return null;
-  const s = pct(session), w = pct(long), f = pct(fable);
-  const score = Math.min(s ?? 100, w ?? 100, f ?? 100);
+  const longName = long && long.windowSeconds > 8 * 86400 ? "Monthly" : "Weekly";
+  let bars = [["Session", session], [longName, long], ["Fable", fable]].filter(([, res]) => res);
+  // An account with other limits only (Copilot's chat and completions): show each percent limit.
+  if (!session && !long) {
+    bars = Object.entries(r).filter(([, res]) => res && res.unit === "percent" && typeof res.remaining === "number")
+      .map(([key, res]) => [title(key), res]);
+  }
+  if (!bars.length) return null;
+  bars = bars.map(([name, res]) => ({ name, res, value: pct(res) }));
+  const score = Math.min(...bars.map(b => b.value ?? 100));
   let note = "Ready", out = false, warn = false, noteTitle = "", backMs = null;
   const now = Date.now();
-  const longName = long && long.windowSeconds > 8 * 86400 ? "Monthly" : "Weekly";
-  const soon = [["Session", session], [longName, long], ["Fable", fable]]
-    .map(([n, res]) => runOut(n, res, now)).filter(Boolean).sort((a, b) => a.fullMs - b.fullMs)[0];
-  const blocked = [["Session", session, s], ["Weekly", long, w], ["Fable", fable, f]].filter(([, res, v]) => v === 0);
+  const soon = bars.map(b => runOut(b.name, b.res, now)).filter(Boolean).sort((a, b) => a.fullMs - b.fullMs)[0];
+  const blocked = bars.filter(b => b.value === 0);
   if (blocked.length) {
     out = true;
-    const latest = blocked.map(([, res]) => res && res.resetsAt).filter(Boolean).sort().pop();
+    const latest = blocked.map(b => b.res.resetsAt).filter(Boolean).sort().pop();
     note = latest ? "Back in " + until(latest) : "Out of room";
     backMs = latest ? new Date(latest).getTime() : null;
   } else if (soon) {
     const when = soon.fullMs - now < 86400000 ? "in " + left(soon.fullMs - now) : stamp(soon.fullMs);
     warn = true;
     note = "Runs out " + when;
-    noteTitle = soon.name + " on pace to run out " + (soon.fullMs - now < 86400000 ? when : stamp(soon.fullMs)) +
-      ", before it resets " + stamp(soon.resetMs);
+    noteTitle = soon.name + " on pace to run out " + when + ", before it resets " + stamp(soon.resetMs);
   }
-  return { id, p, s, w, f, session, long, fable, score, backMs, longName, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
+  return { id, p, bars, score, backMs, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
 }
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
@@ -215,9 +221,7 @@ function card(x, isBest) {
   mid.append(room, status);
   if (x.noteTitle) status.title = x.noteTitle;
   const bars = el("div", "bars");
-  if (x.session) bars.appendChild(meter(x.s, "Session", x.session));
-  if (x.long) bars.appendChild(meter(x.w, x.longName, x.long));
-  if (x.fable) bars.appendChild(meter(x.f, "Fable", x.fable));
+  for (const b of x.bars) bars.appendChild(meter(b.value, b.name, b.res));
   inner.append(who, mid, bars);
   box.appendChild(inner);
   return box;
