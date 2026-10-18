@@ -68,9 +68,10 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
 .when.out { color:var(--out); }
 .pct { font-size:.85em; color:var(--muted); font-variant-numeric: tabular-nums; }
 .pct.out { color:var(--out); }
-.track { grid-column: 1 / -1; height:.4em; border-radius:.2em; background:var(--track); overflow:hidden; }
-.fill { height:100%; background:var(--bar); border-radius:.2em; }
-.fill.warn { background:var(--warn); } .fill.out { background:var(--out); }
+/* Battery bars: ten cells per limit, each worth 10%, the last one filled part-way. */
+.cells { grid-column: 1 / -1; display:grid; grid-template-columns:repeat(10, 1fr); gap:.2em; }
+.cell { height:.8em; border-radius:.18em; background:linear-gradient(to right, var(--c) var(--f), var(--track) var(--f)); }
+.cells.ok { --c:var(--bar); } .cells.warn { --c:var(--warn); } .cells.out { --c:var(--out); }
 .empty { color:var(--muted); }
 .foot { display:flex; flex-wrap:wrap; gap:.3rem 1.2rem; font-size:.8rem; color:var(--faint); }
 .issues { color:var(--warn); }
@@ -168,7 +169,8 @@ function toRow(id, p) {
   const r = p.resources || {};
   const session = r.session, long = r.weekly || r.totalUsage, fable = r.fable;
   const longName = long && long.windowSeconds > 8 * 86400 ? "Monthly" : "Weekly";
-  let bars = [["Session", session], [longName, long], ["Fable", fable]].filter(([, res]) => res);
+  // The week (or month) leads: it is the limit whose leftover a reset throws away.
+  let bars = [[longName, long], ["Session", session], ["Fable", fable]].filter(([, res]) => res);
   // An account with other limits only (Copilot's chat and completions): show each percent limit.
   if (!session && !long) {
     bars = Object.entries(r).filter(([, res]) => res && res.unit === "percent" && typeof res.remaining === "number")
@@ -235,13 +237,13 @@ function meter(value, name, res) {
   const when = resetText(res, value);
   box.append(el("span", "lbl", name), el("span", "when" + (value === 0 ? " out" : ""), when),
     el("span", "pct" + (value === 0 ? " out" : ""), value == null ? "–" : value + "%"));
-  const track = el("div", "track");
-  if (value != null) {
-    const fill = el("div", "fill" + (value <= 0 ? " out" : value < 25 ? " warn" : ""));
-    fill.style.width = (value <= 0 ? 3 : value) + "%";
-    track.appendChild(fill);
+  const cells = el("div", "cells " + (value === 0 ? "out" : value != null && value < 25 ? "warn" : "ok"));
+  for (let i = 0; i < 10; i++) {
+    const cell = el("span", "cell");
+    cell.style.setProperty("--f", (value == null ? 0 : Math.max(0, Math.min(1, (value - i * 10) / 10)) * 100) + "%");
+    cells.appendChild(cell);
   }
-  box.appendChild(track);
+  box.appendChild(cells);
   return box;
 }
 
