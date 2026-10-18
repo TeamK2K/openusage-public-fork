@@ -28,12 +28,14 @@ main { max-width: 760px; margin: 40px auto; padding: 0 16px; }
 .best { color:var(--muted); margin: 0 0 12px 4px; }
 .best b { color:var(--text); font-weight:600; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.row { display:grid; grid-template-columns: minmax(0,1.6fr) 1fr 1fr minmax(0,1fr); gap:16px;
+.row { display:grid; grid-template-columns: minmax(0,1.6fr) 1fr 1fr 1fr minmax(0,1fr); gap:16px;
        align-items:center; padding:10px 16px; border-top:1px solid var(--line); }
 .row:first-child { border-top:none; }
 .head { color:var(--muted); font-size:12px; padding-top:8px; padding-bottom:8px; }
 .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .name small { color:var(--muted); margin-left:6px; }
+.acct { min-width:0; }
+.extras { font-size:12px; color:var(--muted); margin-top:2px; }
 .meter { display:flex; align-items:center; gap:8px; }
 .track { flex:1; height:6px; border-radius:3px; background:var(--track); overflow:hidden; }
 .fill { height:100%; background:var(--bar); }
@@ -42,6 +44,7 @@ main { max-width: 760px; margin: 40px auto; padding: 0 16px; }
 .pct.out { color:var(--out); }
 .note { text-align:right; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .note.out { color:var(--out); }
+.note.warn { color:var(--warn); }
 .stale { opacity:.55; }
 footer { color:var(--muted); font-size:12px; margin:10px 4px; }
 .error { color:var(--out); margin: 0 0 12px 4px; }
@@ -54,7 +57,7 @@ footer { color:var(--muted); font-size:12px; margin:10px 4px; }
   <p class="best" id="best"></p>
   <p class="error" id="error" hidden>OpenUsage isn't answering. Is the app running?</p>
   <div class="card" id="table">
-    <div class="row head"><span>Account</span><span>Session</span><span>Weekly</span><span style="text-align:right">Next</span></div>
+    <div class="row head"><span>Account</span><span>Session</span><span>Weekly</span><span>Fable</span><span style="text-align:right">Next</span></div>
   </div>
   <p class="issues" id="issues" hidden></p>
   <footer id="footer"></footer>
@@ -86,24 +89,73 @@ function meter(value) {
   return box;
 }
 
+// Short weekday + time, minutes only when non-zero: "Tue 3 PM", "Tue 3:30 PM".
+function stamp(ms) {
+  const d = new Date(ms), o = { weekday: "short", hour: "numeric" };
+  if (d.getMinutes()) o.minute = "2-digit";
+  return d.toLocaleString([], o);
+}
+// When a window is on pace to hit 100% before it resets, else null. Needs a tenth of the window
+// elapsed so an early spike does not raise a false alarm.
+function runOut(name, res, now) {
+  if (!res || !res.resetsAt || !(res.windowSeconds > 0) || !(res.used > 0)) return null;
+  const resetMs = new Date(res.resetsAt).getTime();
+  const elapsed = res.windowSeconds - (resetMs - now) / 1000;
+  if (!(elapsed / res.windowSeconds >= 0.1)) return null;
+  const fullMs = now + Math.max(0, 100 - res.used) * elapsed / res.used * 1000;
+  return fullMs < resetMs ? { name, fullMs, resetMs } : null;
+}
+function money(n) { return "$" + Math.round(n).toLocaleString(); }
+function amount(res) { return res && typeof res.available === "number" ? res.available : 0; }
+// Small second line under the account: reset passes and extra credit, each hidden at zero.
+function extras(r) {
+  const out = [];
+  const passes = amount(r.rateLimitResets);
+  if (passes > 0) {
+    const exp = r.rateLimitResets.expiresAt;
+    const first = (Array.isArray(exp) ? exp : []).map(x => new Date(x)).filter(d => !isNaN(d)).sort((a, b) => a - b)[0];
+    out.push(passes + (passes === 1 ? " reset pass" : " reset passes") +
+      (first ? " until " + first.getDate() + " " + first.toLocaleDateString([], { month: "short" }) : ""));
+  }
+  for (const key of ["extraUsage", "onDemand"]) {
+    const x = r[key];
+    if (x && x.unit === "usd" && x.limit > 0 && x.remaining > 0) out.push(money(x.remaining) + " of " + money(x.limit) + " extra left");
+  }
+  if (amount(r.extraUsageBalance) > 0 && r.extraUsageBalance.unit === "usd") out.push(money(r.extraUsageBalance.available) + " extra");
+  const credits = amount(r.credits), value = r.creditValue && r.creditValue.unit === "usd" ? amount(r.creditValue) : 0;
+  if (credits > 0) out.push(credits.toLocaleString() + " credits" + (value > 0 ? " (~" + money(value) + ")" : ""));
+  else if (value > 0) out.push(money(value) + " credit");
+  return out;
+}
+
 function toRow(id, p) {
   const r = p.resources || {};
   const session = r.session, long = r.weekly || r.totalUsage, fable = r.fable;
   if (!session && !long) return null;
   const s = pct(session), w = pct(long), f = pct(fable);
   const score = Math.min(s ?? 100, w ?? 100, f ?? 100);
-  let note = "", out = false;
+  let note = "", out = false, warn = false, noteTitle = "";
+  const now = Date.now();
+  const longName = long && long.windowSeconds > 8 * 86400 ? "Monthly" : "Weekly";
+  const soon = [["Session", session], [longName, long], ["Fable", fable]]
+    .map(([n, res]) => runOut(n, res, now)).filter(Boolean).sort((a, b) => a.fullMs - b.fullMs)[0];
   const blocked = [["Session", session, s], ["Weekly", long, w], ["Fable", fable, f]].filter(([, res, v]) => v === 0);
   if (blocked.length) {
     out = true;
     const latest = blocked.map(([, res]) => res && res.resetsAt).filter(Boolean).sort().pop();
     note = latest ? "back in " + until(latest) : "limit reached";
+  } else if (soon) {
+    const when = soon.fullMs - now < 86400000 ? "in " + left(soon.fullMs - now) : stamp(soon.fullMs);
+    warn = true;
+    note = "runs out " + when;
+    noteTitle = soon.name + " on pace to run out " + (soon.fullMs - now < 86400000 ? when : stamp(soon.fullMs)) +
+      ", before it resets " + stamp(soon.resetMs);
   } else if (session && session.resetsAt) {
     note = "resets " + until(session.resetsAt);
   } else if (long && long.resetsAt) {
     note = (long.windowSeconds > 8 * 86400 ? "month " : "week ") + until(long.resetsAt);
   }
-  return { id, p, s, w, score, note, out, isClaude: id.startsWith("claude") };
+  return { id, p, s, w, f, score, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
 }
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
@@ -120,10 +172,14 @@ function render(data) {
   }
   for (const x of claude.concat(others)) {
     const row = el("div", "row" + (x.p.stale ? " stale" : ""));
-    const name = label(x.id, x.p), cell = el("div", "name");
+    const name = label(x.id, x.p), acct = el("div", "acct"), cell = el("div", "name");
     cell.append(name.family, el("small", null, name.detail));
     cell.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
-    row.append(cell, meter(x.s), meter(x.w), el("div", "note" + (x.out ? " out" : ""), x.note));
+    acct.appendChild(cell);
+    if (x.extras.length) acct.appendChild(el("div", "extras", x.extras.join(" · ")));
+    const note = el("div", "note" + (x.out ? " out" : x.warn ? " warn" : ""), x.note);
+    if (x.noteTitle) note.title = x.noteTitle;
+    row.append(acct, meter(x.s), meter(x.w), meter(x.f), note);
     table.appendChild(row);
   }
   const best = claude.find(x => !x.out);
