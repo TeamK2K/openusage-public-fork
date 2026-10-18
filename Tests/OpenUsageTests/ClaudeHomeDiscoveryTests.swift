@@ -235,3 +235,70 @@ final class ClaudeHomeDiscoveryTests: XCTestCase {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined().prefix(8).description
     }
 }
+
+extension ClaudeDesktopAuthStoreTests {
+    @MainActor
+    func testSiblingFolderWithADesktopOrganizationsIdentityTakesOverThatCard() async throws {
+        let fixture = try makeFixture(
+            activeOrganization: otherOrganization,
+            v2: [
+                cacheKey(organization: organization): tokenEntry("personal-token", expiresIn: 3_600),
+                cacheKey(organization: otherOrganization): tokenEntry("work-token", expiresIn: 3_600),
+            ],
+            accountUUID: accountUUID
+        )
+        let siblingIdentity = "\(accountUUID)|\(organization)"
+        let seat = "\(home.path)/.claude-seat"
+        fixture.files.files["\(home.path)/.claude.json"] =
+            #"{"oauthAccount":{"accountUuid":"\#(accountUUID)","organizationUuid":"\#(otherOrganization)","emailAddress":"work@example.com","organizationName":"SUNSTORY"}}"#
+        fixture.files.files[seat + "/.claude.json"] =
+            #"{"oauthAccount":{"accountUuid":"\#(accountUUID)","organizationUuid":"\#(organization)","emailAddress":"seat@example.com"}}"#
+        fixture.files.files[seat + "/.credentials.json"] =
+            #"{"claudeAiOauth":{"accessToken":"seat-token","expiresAt":4102444800000,"scopes":["user:profile"]}}"#
+        let suite = "OpenUsageTests.SiblingTakeover.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let fixtureHome = home
+        let observer = DefaultAccountObserver(
+            environment: FakeEnvironment(), files: fixture.files, keychain: FakeKeychain(),
+            homeDirectory: { fixtureHome }
+        )
+        let organizations = [organization, otherOrganization]
+
+        let assembly = await ProviderAccountAssembly.make(
+            observer: observer, accountsStore: ProviderAccountsStore(defaults: defaults), families: ["claude"],
+            listClaudeHomeDirectories: { $0 == fixtureHome.path ? [".claude-seat"] : [] },
+            desktop: fixture.store, listDesktopOrganizationDirectories: { _ in organizations }
+        )
+
+        XCTAssertEqual(assembly.claudeCards.count, 2)
+        let matching = assembly.claudeCards.filter { $0.identityKey == siblingIdentity }
+        XCTAssertEqual(matching.count, 1)
+        let card = try XCTUnwrap(matching.first)
+        XCTAssertEqual(card.configDirectory, seat)
+        XCTAssertFalse(card.usesDesktopCredentials)
+        XCTAssertEqual(card.organizationID, organization)
+        XCTAssertEqual(card.displayName, "Claude: seat@example.com")
+        XCTAssertEqual(assembly.identityKeysByCard[card.id], siblingIdentity)
+
+        let providers = ProviderCatalog.make(
+            claudeCards: assembly.claudeCards, claudeIdentityKeys: assembly.identityKeysByCard
+        ).compactMap { $0 as? ClaudeProvider }
+        let store = try XCTUnwrap(providers.first { $0.provider.id == card.id }?.authStore)
+        XCTAssertFalse(store.desktopOnly)
+        XCTAssertEqual(store.configDirectory, seat)
+        XCTAssertEqual(store.desktopOrganization, organization)
+        // Same configuration over fixture files: the folder login is read first, and the Desktop
+        // token for the same account stays behind it as a fallback.
+        let configured = ClaudeAuthStore(
+            environment: FakeEnvironment(), files: fixture.files, keychain: FakeKeychain(),
+            desktop: fixture.store, desktopOrganization: store.desktopOrganization,
+            expectedIdentityKey: store.expectedIdentityKey, desktopOnly: store.desktopOnly,
+            preferOrganizationScopedDesktop: store.preferOrganizationScopedDesktop,
+            configDirectory: store.configDirectory
+        )
+        XCTAssertEqual(configured.loadCredentialCandidates().first?.oauth.accessToken, "seat-token")
+        fixture.files.files[seat + "/.credentials.json"] = nil
+        XCTAssertEqual(configured.loadCredentialCandidates().map(\.oauth.accessToken), ["personal-token"])
+    }
+}

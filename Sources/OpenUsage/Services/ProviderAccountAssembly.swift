@@ -284,8 +284,23 @@ struct ProviderAccountAssembly {
             identityKeys[record.id] = account.identityKey
         }
         for login in siblingHomes {
-            guard !cards.contains(where: { $0.identityKey == login.identityKey }) else {
-                AppLog.debug(.config, "accounts: Claude home \(login.directory) already has a card; not adding another")
+            if let index = cards.firstIndex(where: { $0.identityKey == login.identityKey }) {
+                let existing = cards[index]
+                guard existing.identityKey != defaultClaudeIdentity,
+                      existing.swapAccount == nil, existing.configDirectory == nil
+                else {
+                    AppLog.debug(.config, "accounts: Claude home \(login.directory) already has a card; not adding another")
+                    continue
+                }
+                // A Desktop-only card for the same account reads the folder's own login first; its
+                // Desktop token stays a fallback for that account (see ClaudeAuthStore.loadCredentialSet).
+                cards[index] = ClaudeAccountCard(
+                    id: existing.id, identityKey: existing.identityKey, organizationID: existing.organizationID,
+                    displayName: login.displayName, usesDesktopCredentials: false,
+                    allowsUnattributedPiUsage: allowsUnattributedPiUsage,
+                    organizationName: existing.organizationName, configDirectory: login.directory
+                )
+                AppLog.info(.config, "accounts: Claude home \(login.directory) now backs the \(existing.id) card")
                 continue
             }
             guard let record = records.first(where: {
