@@ -22,6 +22,7 @@ struct CustomizeView: View {
             content
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
+                .frame(maxWidth: WideDashboardSetting.formWidth)
                 .frame(maxWidth: .infinity)
         }
         .onPreferenceChange(ReorderFramePreferenceKey.self) { frameStore.frames = $0 }

@@ -18,9 +18,11 @@ struct SettingsScreen: View {
     @State private var launchAtLogin = LaunchAtLoginSetting()
     @State private var commandLineTool = CommandLineToolInstaller()
     @AppStorage(TotalSpendSetting.key) private var showTotalSpend = true
+    @AppStorage(SeatsPageSetting.key) private var clickOpensSeatsPage = SeatsPageSetting.fallback
     @AppStorage(AppearanceSetting.key) private var appearance = AppearanceSetting.system
     @AppStorage(TimeFormatSetting.key) private var timeFormat = TimeFormatSetting.auto
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
+    @AppStorage(WideDashboardSetting.key) private var wideDashboard = WideDashboardSetting.fallback
     @AppStorage(ReduceAnimationsSetting.key) private var reduceAnimations = ReduceAnimationsSetting.fallback
     @AppStorage(LogLevelSetting.key) private var logLevel = LogLevelSetting.fallback
     /// Surfaced under the Advanced rows when copying the path or revealing the file fails.
@@ -72,6 +74,8 @@ struct SettingsScreen: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        .frame(maxWidth: WideDashboardSetting.formWidth)
+        .frame(maxWidth: .infinity)
         .task { await refreshNotificationsAuth() }
         .onChange(of: layout.screen) { _, screen in
             if screen == .settings {
@@ -97,6 +101,11 @@ struct SettingsScreen: View {
             // provider must exist, so this toggle can't conjure it up alone.
             row("Show Total Spend") {
                 Toggle("", isOn: $showTotalSpend)
+                    .settingsSwitchStyle()
+            }
+            // Left click opens the concise accounts page in the browser; right-click keeps the panel.
+            row("Click Opens Web Page") {
+                Toggle("", isOn: $clickOpensSeatsPage)
                     .settingsSwitchStyle()
             }
             row("Launch at Login") {
@@ -134,6 +143,12 @@ struct SettingsScreen: View {
             }
             row("Density") {
                 picker($density, options: DensitySetting.allCases, label: \.label)
+            }
+            // Three provider cards per row in a wider window, for setups with many accounts.
+            row("Wide Window") {
+                Toggle("", isOn: $wideDashboard)
+                    .settingsSwitchStyle()
+                    .onChange(of: wideDashboard) { WideDashboardSetting.notifyChanged() }
             }
             row("Reduce Animations") {
                 Toggle("", isOn: $reduceAnimations)

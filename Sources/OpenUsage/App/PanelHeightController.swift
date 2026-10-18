@@ -5,24 +5,32 @@ import AppKit
 /// AppKit.
 @MainActor
 final class PanelHeightController {
-    static let panelWidth: CGFloat = 320
+    static let panelWidth: CGFloat = WideDashboardSetting.regularWidth
     static let defaultHeight: CGFloat = 800
 
     private let panel: MenuBarPanel
     private let currentScreen: () -> PopoverScreen
     private let defaults: UserDefaults
+    private let widthStore: PanelWidthStore
 
     private var anchorScreen: NSScreen?
     private var anchorTopLeft: NSPoint?
+    /// Width chosen when the panel opened (regular or wide, clamped to the display); held for the
+    /// whole session so height morphs never change it mid-flight.
+    private var openWidth: CGFloat = PanelHeightController.panelWidth
+    private var anchorButtonRect: NSRect?
+    private var widthObserver: NSObjectProtocol?
     private var morphSettleTask: Task<Void, Never>?
     private(set) var isMorphing = false
 
     init(
         panel: MenuBarPanel,
+        widthStore: PanelWidthStore,
         defaults: UserDefaults = .standard,
         currentScreen: @escaping () -> PopoverScreen
     ) {
         self.panel = panel
+        self.widthStore = widthStore
         self.defaults = defaults
         self.currentScreen = currentScreen
     }
@@ -36,6 +44,15 @@ final class PanelHeightController {
         MenuBarPopover.clampHeight = { [weak self] rawHeight in
             self?.clampedHeight(rawHeight) ?? rawHeight
         }
+        // The Wide Window switch lives inside this panel, so flipping it resizes the open window in
+        // place; the dashboard follows through `widthStore`.
+        widthObserver = NotificationCenter.default.addObserver(
+            forName: WideDashboardSetting.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyWidthSetting() }
+        }
     }
 
     /// Clears the previous session, captures the display, and opens at the remembered guess. This must
@@ -48,9 +65,16 @@ final class PanelHeightController {
 
         let screen = NSScreen.screens.first { $0.frame.intersects(buttonRect) } ?? NSScreen.main
         anchorScreen = screen
+        anchorButtonRect = buttonRect
+        let width = PanelGeometry.clampedWidth(
+            WideDashboardSetting.panelWidth(defaults: defaults),
+            visibleFrame: screen?.visibleFrame
+        )
+        openWidth = width
+        widthStore.width = width
         let topLeft = PanelGeometry.clampedTopLeft(
             below: buttonRect,
-            width: Self.panelWidth,
+            width: width,
             visibleFrame: screen?.visibleFrame
         )
         anchorTopLeft = topLeft
@@ -58,7 +82,7 @@ final class PanelHeightController {
         let remembered = loadHeight(for: currentScreen()) ?? Self.defaultHeight
         let height = clampedHeight(remembered)
         panel.setFrame(
-            PanelGeometry.frame(topLeft: topLeft, width: Self.panelWidth, height: height),
+            PanelGeometry.frame(topLeft: topLeft, width: width, height: height),
             display: false
         )
         panel.invalidateShadow()
@@ -73,10 +97,30 @@ final class PanelHeightController {
     /// Clears all opening-session state after the panel is ordered out.
     func finishClosing() {
         anchorTopLeft = nil
+        anchorButtonRect = nil
         anchorScreen = nil
         morphSettleTask?.cancel()
         isMorphing = false
         PanelHeightBridge.invalidate()
+    }
+
+    private func applyWidthSetting() {
+        guard panel.isVisible, let buttonRect = anchorButtonRect else { return }
+        let visibleFrame = anchorScreen?.visibleFrame
+        let width = PanelGeometry.clampedWidth(
+            WideDashboardSetting.panelWidth(defaults: defaults),
+            visibleFrame: visibleFrame
+        )
+        guard abs(width - openWidth) > 0.5 else { return }
+        openWidth = width
+        widthStore.width = width
+        let topLeft = PanelGeometry.clampedTopLeft(below: buttonRect, width: width, visibleFrame: visibleFrame)
+        anchorTopLeft = topLeft
+        panel.setFrame(
+            PanelGeometry.frame(topLeft: topLeft, width: width, height: panel.frame.height),
+            display: true
+        )
+        panel.invalidateShadow()
     }
 
     private func applyMorphHeight(_ rawHeight: CGFloat) {
@@ -88,7 +132,7 @@ final class PanelHeightController {
         let height = clampedHeight(rawHeight)
         guard abs(panel.frame.height - height) > 1 else { return }
         panel.setFrame(
-            PanelGeometry.frame(topLeft: anchorTopLeft, width: Self.panelWidth, height: height),
+            PanelGeometry.frame(topLeft: anchorTopLeft, width: openWidth, height: height),
             display: false
         )
         isMorphing = true
@@ -142,6 +186,12 @@ enum PanelGeometry {
     static let topGap: CGFloat = 4
     static let screenMargin: CGFloat = 8
     static let minimumHeight: CGFloat = 200
+
+    /// Keeps a requested width (the wide panel, mostly) inside the display's margins.
+    static func clampedWidth(_ width: CGFloat, visibleFrame: NSRect?) -> CGFloat {
+        guard let visibleFrame else { return width }
+        return max(1, min(width, visibleFrame.width - 2 * screenMargin))
+    }
 
     static func clampedTopLeft(below buttonRect: NSRect, width: CGFloat, visibleFrame: NSRect?) -> NSPoint {
         var x = buttonRect.minX

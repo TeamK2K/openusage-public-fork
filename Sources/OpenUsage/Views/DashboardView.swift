@@ -62,13 +62,15 @@ struct DashboardView: View {
     private static let footerHorizontalPadding: CGFloat = outerPadding
     private static let reorderSpace = "popoverReorderSpace"
     /// One width across both densities — switching density shouldn't move the popover's left edge.
-    private static let popoverWidth: CGFloat = 320
+    /// It's the window's real width (regular or wide, clamped to the display) as the panel controller
+    /// sized it, so the content always fits the window.
+    private var popoverWidth: CGFloat { container.panelWidth.width }
     /// Fixed height of the Customize / Settings back nav bar — the bar pins itself to exactly this height.
     private static let topBarHeight: CGFloat = 44
 
     var body: some View {
         modeBody
-            .frame(width: Self.popoverWidth)
+            .frame(width: popoverWidth)
             // Fill the panel. The panel auto-fits its content (the window height is driven to each
             // screen's measured ideal via `drivesPanelHeight`), so at rest the window is exactly the
             // content's height and this fill is a no-op; when content exceeds the screen cap the window
@@ -304,27 +306,27 @@ struct DashboardView: View {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(pages, id: \.self) { screen in
                     pagerPage(screen, settingsKeptAlive: keepSettings)
-                        .frame(width: Self.popoverWidth)
+                        .frame(width: popoverWidth)
                         .frame(maxHeight: .infinity, alignment: .top)
                 }
             }
-            .frame(width: Self.popoverWidth, alignment: .leading)
+            .frame(width: popoverWidth, alignment: .leading)
             .offset(x: pagerOffset)
 
             if keepSettings {
                 screenView(.settings, includeChrome: Self.settingsChromeIsVisible(pages: pages))
-                    .frame(width: Self.popoverWidth)
+                    .frame(width: popoverWidth)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .offset(x: Self.settingsOverlayOffset(
                         pages: pages,
                         slideOffset: pagerOffset,
-                        pageWidth: Self.popoverWidth
+                        pageWidth: popoverWidth
                     ))
                     .allowsHitTesting(layout.screen == .settings && !isSliding)
                     .accessibilityHidden(layout.screen != .settings)
             }
         }
-        .frame(width: Self.popoverWidth, alignment: .leading)
+        .frame(width: popoverWidth, alignment: .leading)
         .animation(nil, value: layout.screenSlideID)
     }
 
@@ -401,8 +403,8 @@ struct DashboardView: View {
     /// the first frame after a switch shows the screen being left — never a flash of the destination.
     private func slideOffset(_ pages: [PopoverScreen]) -> CGFloat {
         guard isSliding, pages.count > 1 else { return 0 }
-        let fromOffset = -CGFloat(pages.firstIndex(of: layout.screenSlideFrom) ?? 0) * Self.popoverWidth
-        let toOffset = -CGFloat(pages.firstIndex(of: layout.screen) ?? 0) * Self.popoverWidth
+        let fromOffset = -CGFloat(pages.firstIndex(of: layout.screenSlideFrom) ?? 0) * popoverWidth
+        let toOffset = -CGFloat(pages.firstIndex(of: layout.screen) ?? 0) * popoverWidth
         let progress = animatedSlideID == layout.screenSlideID ? slideProgress : 0
         return fromOffset + progress * (toOffset - fromOffset)
     }
