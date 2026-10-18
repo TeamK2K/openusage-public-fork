@@ -16,10 +16,10 @@ enum SeatsPage {
 <title>Seats · OpenUsage</title>
 <style>
 :root { --bg:#f6f6f4; --card:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e6e5e0; --track:#ecebe6;
-        --bar:#2f7de1; --warn:#c98a12; --out:#d64545; }
+        --bar:#2f7de1; --warn:#c98a12; --out:#d64545; --ok:#2f9e5b; }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#161615; --card:#1f1f1d; --text:#ecebe6; --muted:#9a9993; --line:#2e2e2b; --track:#2e2e2b;
-          --bar:#4b95f0; --warn:#e0a640; --out:#f06a6a; }
+          --bar:#4b95f0; --warn:#e0a640; --out:#f06a6a; --ok:#4cc27e; }
 }
 * { box-sizing: border-box; }
 /* Fills the browser window and scales with it: type grows from phone to big screen, the rows share
@@ -40,7 +40,9 @@ main { min-height:100vh; display:flex; flex-direction:column; padding: clamp(16p
 .name small { color:var(--muted); margin-left:.4em; font-size:.85em; }
 .acct { min-width:0; }
 .extras { font-size:.85em; color:var(--muted); margin-top:.2em; }
-.meter { display:flex; align-items:center; gap:.6em; }
+.meter { display:flex; flex-wrap:wrap; align-items:center; gap:.25em .6em; }
+.when { width:100%; font-size:.78em; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.when.out { color:var(--out); }
 .track { flex:1; height:.5em; border-radius:.25em; background:var(--track); overflow:hidden; }
 .fill { height:100%; background:var(--bar); }
 .fill.warn { background:var(--warn); } .fill.out { background:var(--out); }
@@ -49,6 +51,7 @@ main { min-height:100vh; display:flex; flex-direction:column; padding: clamp(16p
 .note { text-align:right; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .note.out { color:var(--out); }
 .note.warn { color:var(--warn); }
+.note.ok { color:var(--ok); }
 .stale { opacity:.55; }
 footer { color:var(--muted); font-size:.85em; margin:.8em .3em 0; }
 .error { color:var(--out); margin: 0 0 .8em .25em; }
@@ -62,6 +65,7 @@ footer { color:var(--muted); font-size:.85em; margin:.8em .3em 0; }
   .meter { flex-wrap:wrap; gap:.2em .5em; }
   .meter::before { content: attr(data-label); width:100%; font-size:.75em; color:var(--muted); }
   .pct { width:auto; }
+  .note { white-space:normal; }
 }
 </style>
 </head>
@@ -70,7 +74,7 @@ footer { color:var(--muted); font-size:.85em; margin:.8em .3em 0; }
   <p class="best" id="best"></p>
   <p class="error" id="error" hidden>OpenUsage isn't answering. Is the app running?</p>
   <div class="card" id="table">
-    <div class="row head"><span>Account</span><span>Session</span><span>Weekly</span><span>Fable</span><span style="text-align:right">Next</span></div>
+    <div class="row head"><span>Account</span><span>Session</span><span>Weekly</span><span>Fable</span><span style="text-align:right">Status</span></div>
   </div>
   <p class="issues" id="issues" hidden></p>
   <footer id="footer"></footer>
@@ -91,7 +95,15 @@ function label(id, p) {
   return m ? { family: "Claude", detail: m[1] } : { family: raw, detail: p.plan || "" };
 }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function meter(value, label) {
+// Reset time for one bar: "resets in 2h 7m" inside a day, else "resets Thu 9 AM"; "back …" in red
+// when that limit is used up; "not started" when a window has no clock running yet.
+function resetText(res, value) {
+  if (!res) return "";
+  if (!res.resetsAt) return value != null && value >= 100 ? "not started" : "";
+  const ms = new Date(res.resetsAt) - Date.now();
+  return (value === 0 ? "back " : "resets ") + (ms < 86400000 ? "in " + left(ms) : stamp(new Date(res.resetsAt).getTime()));
+}
+function meter(value, label, res) {
   const box = el("div", "meter"), track = el("div", "track");
   box.dataset.label = label;
   if (value != null) {
@@ -100,12 +112,16 @@ function meter(value, label) {
     track.appendChild(fill);
   }
   box.append(track, el("span", "pct" + (value === 0 ? " out" : ""), value == null ? "–" : value + "%"));
+  const when = resetText(res, value);
+  if (when) box.appendChild(el("div", "when" + (value === 0 ? " out" : ""), when));
   return box;
 }
 
-// Short weekday + time, minutes only when non-zero: "Tue 3 PM", "Tue 3:30 PM".
+// Short weekday + time, minutes only when non-zero: "Tue 3 PM", "Tue 3:30 PM". More than six days
+// out a weekday is ambiguous, so it becomes a date: "5 Nov".
 function stamp(ms) {
   const d = new Date(ms), o = { weekday: "short", hour: "numeric" };
+  if (ms - Date.now() > 6 * 86400000) return d.getDate() + " " + d.toLocaleDateString([], { month: "short" });
   if (d.getMinutes()) o.minute = "2-digit";
   return d.toLocaleString([], o);
 }
@@ -148,7 +164,7 @@ function toRow(id, p) {
   if (!session && !long) return null;
   const s = pct(session), w = pct(long), f = pct(fable);
   const score = Math.min(s ?? 100, w ?? 100, f ?? 100);
-  let note = "", out = false, warn = false, noteTitle = "";
+  let note = "Ready", out = false, warn = false, noteTitle = "";
   const now = Date.now();
   const longName = long && long.windowSeconds > 8 * 86400 ? "Monthly" : "Weekly";
   const soon = [["Session", session], [longName, long], ["Fable", fable]]
@@ -157,19 +173,15 @@ function toRow(id, p) {
   if (blocked.length) {
     out = true;
     const latest = blocked.map(([, res]) => res && res.resetsAt).filter(Boolean).sort().pop();
-    note = latest ? "back in " + until(latest) : "limit reached";
+    note = latest ? "Out · back in " + until(latest) : "Out of room";
   } else if (soon) {
     const when = soon.fullMs - now < 86400000 ? "in " + left(soon.fullMs - now) : stamp(soon.fullMs);
     warn = true;
-    note = "runs out " + when;
+    note = "Runs out " + when;
     noteTitle = soon.name + " on pace to run out " + (soon.fullMs - now < 86400000 ? when : stamp(soon.fullMs)) +
       ", before it resets " + stamp(soon.resetMs);
-  } else if (session && session.resetsAt) {
-    note = "resets " + until(session.resetsAt);
-  } else if (long && long.resetsAt) {
-    note = (long.windowSeconds > 8 * 86400 ? "month " : "week ") + until(long.resetsAt);
   }
-  return { id, p, s, w, f, score, longName, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
+  return { id, p, s, w, f, session, long, fable, score, longName, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
 }
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
@@ -191,9 +203,9 @@ function render(data) {
     cell.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
     acct.appendChild(cell);
     if (x.extras.length) acct.appendChild(el("div", "extras", x.extras.join(" · ")));
-    const note = el("div", "note" + (x.out ? " out" : x.warn ? " warn" : ""), x.note);
+    const note = el("div", "note" + (x.out ? " out" : x.warn ? " warn" : " ok"), x.note);
     if (x.noteTitle) note.title = x.noteTitle;
-    row.append(acct, meter(x.s, "Session"), meter(x.w, x.longName), meter(x.f, "Fable"), note);
+    row.append(acct, meter(x.s, "Session", x.session), meter(x.w, x.longName, x.long), meter(x.f, "Fable", x.fable), note);
     table.appendChild(row);
   }
   const best = claude.find(x => !x.out);
@@ -205,6 +217,8 @@ function render(data) {
   } else if (claude.length) {
     bestLine.textContent = "Every Claude account is out of room right now.";
   }
+  const ready = rows.filter(x => !x.out).length;
+  if (rows.length) bestLine.append((bestLine.textContent ? "  ·  " : "") + ready + " of " + rows.length + " accounts ready");
   // Accounts whose last refresh failed: their row (if any) shows older numbers, so say which.
   const failed = (data.errors || []).map(e => {
     const p = providers[e.providerId];
