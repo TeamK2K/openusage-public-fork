@@ -1,8 +1,8 @@
 import Foundation
 
-/// The concise "which account has room" page the local server serves at `/`. One row per account
-/// with a session and a weekly (or monthly) bar, accounts out of room flagged in red, and the Claude
-/// account with the most room called out on top. It reads `/v1/limits` from the same origin and
+/// The concise "which account has room" page the local server serves at `/`. One card per account,
+/// all fitted on one screen, each with its room, status and session / weekly (or monthly) / Fable bars;
+/// the Claude account with the most room is named on top and outlined. It reads `/v1/limits` from the same origin and
 /// refreshes itself, so it needs nothing beyond the running app. Self-contained: no external assets.
 enum SeatsPage {
     static let html: Data = Data(source.utf8)
@@ -15,82 +15,75 @@ enum SeatsPage {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI accounts · OpenUsage</title>
 <style>
-:root { --bg:#f7f7f5; --text:#1c1c1a; --muted:#6e6d68; --faint:#9c9b95; --line:#e4e3de; --track:#e9e8e3;
+:root { --bg:#f4f4f1; --card:#fff; --text:#1c1c1a; --muted:#6e6d68; --faint:#9c9b95; --line:#e4e3de; --track:#e9e8e3;
         --bar:#2f7de1; --warn:#b97c0c; --out:#d13f3f; --ok:#23915a; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#141413; --text:#edece6; --muted:#a3a29b; --faint:#6f6e69; --line:#2a2a27; --track:#2c2c29;
+  :root { --bg:#111110; --card:#1b1b1a; --text:#edece6; --muted:#a3a29b; --faint:#6f6e69; --line:#2a2a27; --track:#2e2e2b;
           --bar:#4d96f2; --warn:#e3a43c; --out:#f06868; --ok:#52c886; }
 }
 * { box-sizing: border-box; }
-/* Fills the window and scales with it: type grows from phone to big screen. */
-html { font-size: clamp(15px, 0.5vw + 0.5vh + 6px, 26px); }
+html { font-size: clamp(14px, 0.4vw + 0.4vh + 6px, 22px); }
 body { margin:0; background:var(--bg); color:var(--text);
-       font: 1rem/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
-main { min-height:100svh; padding: clamp(20px, 4vw, 72px) clamp(16px, 4vw, 72px) clamp(16px, 2.5vw, 40px);
-       display:flex; flex-direction:column; gap: 2.2em; }
-.top .kicker { margin:0 0 .3em; color:var(--muted); font-size:.85em; letter-spacing:.04em; text-transform:uppercase; }
-.top h1 { margin:0; font-size:2.3em; line-height:1.15; font-weight:650; letter-spacing:-.01em; overflow-wrap:anywhere; }
+       font: 1rem/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+/* One screen, no scrolling: header, a card grid that takes the rest, a one-line footer. */
+main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: clamp(14px, 2.2vw, 40px); }
+.top { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:1.2rem; row-gap:.2rem; }
+.top h1 { margin:0; font-size:1.75rem; line-height:1.15; font-weight:650; letter-spacing:-.01em; overflow-wrap:anywhere; }
 .top h1 .dim { color:var(--muted); font-weight:500; }
-.top .sub { margin:.45em 0 0; color:var(--muted); font-size:1.1em; }
-.error { margin:.6em 0 0; color:var(--out); }
-section + section { margin-top:2.2em; }
-section h2 { margin:0 0 .5em; font-size:.85em; font-weight:600; color:var(--muted); letter-spacing:.04em; text-transform:uppercase;
-             display:flex; gap:.6em; align-items:baseline; }
-section h2 .count { font-weight:500; text-transform:none; letter-spacing:0; color:var(--faint); }
-.grid { display:grid; grid-template-columns: minmax(0,1.6fr) 5.5em repeat(var(--bars), minmax(0,1fr)) minmax(0,1fr);
-        column-gap:1.6em; align-items:center; }
-.cols { color:var(--faint); font-size:.78em; padding:0 0 .5em; border-bottom:1px solid var(--line); }
-.cols .r, .room, .status { text-align:right; }
-.row { padding:1em 0; border-bottom:1px solid var(--line); }
-.acct { min-width:0; display:flex; gap:.7em; align-items:flex-start; }
-.dot { flex:none; width:.6em; height:.6em; border-radius:50%; margin-top:.5em; background:var(--ok); }
-.dot.warn { background:var(--warn); } .dot.out { background:var(--out); }
+.top .sub { margin:0; color:var(--muted); }
+.error { flex-basis:100%; margin:.3rem 0 0; color:var(--out); }
+#cards { flex:1; min-height:0; display:grid; gap: clamp(8px, 1vw, 18px);
+         grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 3), minmax(0, 1fr)); }
+.card { container-type:size; min-width:0; min-height:0; overflow:hidden; background:var(--card);
+        border:1px solid var(--line); border-radius:14px; }
+.card.best { border-color:var(--bar); box-shadow: inset 0 0 0 1px var(--bar); }
+.card.stale { opacity:.55; }
+/* Everything inside scales with the card, so a 4-card and a 9-card screen both read cleanly. */
+.in { height:100%; display:flex; flex-direction:column; gap:3.2cqh; padding: 5.5cqmin 6cqmin;
+      font-size: clamp(10px, min(5.4cqh, 6.4cqw), 26px); }
 .who { min-width:0; }
-.name { font-size:1.12em; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.name small { font-weight:400; color:var(--muted); margin-left:.4em; font-size:.85em; }
-.extras { color:var(--muted); font-size:.82em; margin-top:.15em; }
-.room { font-size:1.7em; font-weight:650; font-variant-numeric: tabular-nums; line-height:1; }
-.room.warn { color:var(--warn); } .room.out { color:var(--out); }
-.room small { display:block; font-size:.42em; font-weight:500; color:var(--faint); margin-top:.35em; letter-spacing:.03em; }
-.meter { display:grid; grid-template-columns: 1fr auto; column-gap:.6em; row-gap:.3em; align-items:center; }
-.na { color:var(--faint); }
-.track { height:.42em; border-radius:.21em; background:var(--track); overflow:hidden; }
-.fill { height:100%; background:var(--bar); border-radius:.21em; }
-.fill.warn { background:var(--warn); } .fill.out { background:var(--out); }
-.pct { color:var(--muted); font-variant-numeric: tabular-nums; font-size:.9em; min-width:2.6em; text-align:right; }
-.pct.out { color:var(--out); }
-.when { grid-column: 1 / -1; font-size:.78em; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mid { display:flex; justify-content:space-between; align-items:flex-end; gap:.8em; }
+.kicker { font-size:.72em; color:var(--faint); letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.name { font-size:1.15em; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.extras { font-size:.78em; color:var(--muted); margin-top:.15em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.room { flex:none; font-size:2.9em; font-weight:700; line-height:1; font-variant-numeric: tabular-nums; }
+.room small { display:block; font-size:.3em; font-weight:500; color:var(--faint); letter-spacing:.05em; margin-top:.3em; }
+.room.warn, .status.warn { color:var(--warn); } .room.out, .status.out { color:var(--out); }
+.status { font-size:.95em; font-weight:600; color:var(--ok); display:flex; align-items:center; gap:.45em; text-align:right; padding-bottom:1.1em; }
+.dot { width:.55em; height:.55em; border-radius:50%; background:currentColor; flex:none; }
+.bars { margin-top:auto; display:flex; flex-direction:column; gap:2.6cqh; }
+.meter { display:grid; grid-template-columns: auto 1fr auto; column-gap:.5em; row-gap:.3em; align-items:baseline; }
+.meter .lbl { font-size:.8em; color:var(--muted); }
+.when { font-size:.72em; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .when.out { color:var(--out); }
-.status { color:var(--muted); font-size:.95em; }
-.status.warn { color:var(--warn); } .status.out { color:var(--out); }
-.stale { opacity:.55; }
-.empty { color:var(--muted); padding:1em 0; }
-.issues { margin:0; color:var(--warn); font-size:.9em; }
-footer { margin-top:auto; color:var(--faint); font-size:.82em; }
-@media (max-width: 760px) {
-  main { gap:1.6em; }
-  .top h1 { font-size:1.7em; }
-  .cols { display:none; }
-  .grid { grid-template-columns: repeat(var(--bars), minmax(0,1fr)); grid-template-areas: "acct acct room" "bars bars bars" "status status status";
-          row-gap:.7em; column-gap:1em; }
-  .acct { grid-column: 1 / -2; } .room { grid-column: -2 / -1; }
-  .meter::before { content: attr(data-label); grid-column: 1 / -1; font-size:.75em; color:var(--faint); }
-  .status { grid-column: 1 / -1; text-align:left; }
-  .status:empty { display:none; }
+.pct { font-size:.85em; color:var(--muted); font-variant-numeric: tabular-nums; }
+.pct.out { color:var(--out); }
+.track { grid-column: 1 / -1; height:.4em; border-radius:.2em; background:var(--track); overflow:hidden; }
+.fill { height:100%; background:var(--bar); border-radius:.2em; }
+.fill.warn { background:var(--warn); } .fill.out { background:var(--out); }
+.empty { color:var(--muted); }
+.foot { display:flex; flex-wrap:wrap; gap:.3rem 1.2rem; font-size:.8rem; color:var(--faint); }
+.issues { color:var(--warn); }
+/* Phones: one card per row at a fixed height, and the page scrolls. */
+@media (max-width: 640px) {
+  main { height:auto; min-height:100svh; }
+  #cards { display:flex; flex-direction:column; }
+  .card { height:auto; flex:none; container-type:normal; }
+  .in { font-size:15px; gap:.9em; padding:1em 1.1em; }
+  .bars { gap:.7em; }
+  .top h1 { font-size:1.45rem; }
 }
 </style>
 </head>
 <body>
 <main>
   <header class="top">
-    <p class="kicker">AI accounts</p>
     <h1 id="verdict">Loading…</h1>
     <p class="sub" id="sub"></p>
     <p class="error" id="error" hidden>OpenUsage isn't answering on this Mac. Open the OpenUsage menu bar app, then this page refreshes by itself.</p>
   </header>
-  <div id="sections"></div>
-  <p class="issues" id="issues" hidden></p>
-  <footer id="footer"></footer>
+  <div id="cards"></div>
+  <div class="foot"><span id="footer"></span><span class="issues" id="issues" hidden></span></div>
 </main>
 <script>
 const REFRESH_MS = 30000;
@@ -98,7 +91,7 @@ const REFRESH_MS = 30000;
 function left(ms) {
   if (ms <= 0) return "now";
   const m = Math.round(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), r = m % 60;
-  return d ? d + "d " + h + "h" : h ? h + "h " + r + "m" : r + "m";
+  return d ? d + "d " + h + "h" : h ? h + "h" + (r ? " " + r + "m" : "") : r + "m";
 }
 function until(iso) { return iso ? left(new Date(iso) - Date.now()) : null; }
 function pct(r) { return r && typeof r.remaining === "number" ? Math.max(0, Math.min(100, Math.round(r.remaining))) : null; }
@@ -115,20 +108,6 @@ function resetText(res, value) {
   if (!res.resetsAt) return value != null && value >= 100 ? "not started" : "";
   const ms = new Date(res.resetsAt) - Date.now();
   return (value === 0 ? "back " : "resets ") + (ms < 86400000 ? "in " + left(ms) : stamp(new Date(res.resetsAt).getTime()));
-}
-function meter(value, label, res) {
-  if (value == null && !res) return el("div", "na", "—");
-  const box = el("div", "meter"), track = el("div", "track");
-  box.dataset.label = label;
-  if (value != null) {
-    const fill = el("div", "fill" + (value <= 0 ? " out" : value < 25 ? " warn" : ""));
-    fill.style.width = (value <= 0 ? 3 : value) + "%";
-    track.appendChild(fill);
-  }
-  box.append(track, el("span", "pct" + (value === 0 ? " out" : ""), value == null ? "–" : value + "%"));
-  const when = resetText(res, value);
-  if (when) box.appendChild(el("div", "when" + (value === 0 ? " out" : ""), when));
-  return box;
 }
 
 // Short weekday + time, minutes only when non-zero: "Tue 3 PM", "Tue 3:30 PM". More than six days
@@ -201,77 +180,95 @@ function toRow(id, p) {
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 
-// How a row reads: out (a limit at 0), warn (on pace to run out, or under 25% left), else ready.
+// How a card reads: out (a limit at 0), warn (on pace to run out, or under 25% left), else ready.
 function tone(x) { return x.out ? "out" : (x.warn || x.score < 25) ? "warn" : "ok"; }
-function statusText(x) { return x.out || x.warn ? x.note : ""; }
 
-// Every section keeps the same five columns so Room and the bars line up down the whole page.
-function section(title, count, rows, withFable) {
-  const bars = 3;
-  const box = el("section");
-  const h = el("h2", null, title);
-  if (count) h.appendChild(el("span", "count", count));
-  box.appendChild(h);
-  const cols = el("div", "grid cols");
-  cols.style.setProperty("--bars", bars);
-  const longs = [...new Set(rows.filter(x => x.long).map(x => x.longName))];
-  cols.append(el("span", null, "Account"), el("span", "r", "Room"), el("span", null, "Session"),
-    el("span", null, longs.length > 1 ? "Week / month" : longs[0] || "Weekly"));
-  cols.appendChild(el("span", null, withFable ? "Fable" : ""));
-  cols.appendChild(el("span", "r", "Status"));
-  box.appendChild(cols);
-  for (const x of rows) {
-    const t = tone(x);
-    const row = el("div", "grid row" + (x.p.stale ? " stale" : ""));
-    row.style.setProperty("--bars", bars);
-    const name = label(x.id, x.p), acct = el("div", "acct"), who = el("div", "who"), cell = el("div", "name");
-    cell.append(name.family, el("small", null, name.detail));
-    cell.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
-    who.appendChild(cell);
-    if (x.extras.length) who.appendChild(el("div", "extras", x.extras.join(" · ")));
-    acct.append(el("span", "dot " + t), who);
-    const room = el("div", "room " + t, x.score + "%");
-    room.appendChild(el("small", null, "ROOM"));
-    row.append(acct, room, meter(x.s, "Session", x.session), meter(x.w, x.longName, x.long));
-    row.appendChild(withFable ? meter(x.f, "Fable", x.fable) : el("div"));
-    const status = el("div", "status " + t, statusText(x));
-    if (x.noteTitle) status.title = x.noteTitle;
-    row.appendChild(status);
-    box.appendChild(row);
+function meter(value, name, res) {
+  const box = el("div", "meter");
+  const when = resetText(res, value);
+  box.append(el("span", "lbl", name), el("span", "when" + (value === 0 ? " out" : ""), when),
+    el("span", "pct" + (value === 0 ? " out" : ""), value == null ? "–" : value + "%"));
+  const track = el("div", "track");
+  if (value != null) {
+    const fill = el("div", "fill" + (value <= 0 ? " out" : value < 25 ? " warn" : ""));
+    fill.style.width = (value <= 0 ? 3 : value) + "%";
+    track.appendChild(fill);
   }
+  box.appendChild(track);
   return box;
 }
+
+function card(x, isBest) {
+  const t = tone(x), n = label(x.id, x.p);
+  const box = el("div", "card" + (isBest ? " best" : "") + (x.p.stale ? " stale" : ""));
+  const inner = el("div", "in");
+  const who = el("div", "who");
+  const kicker = [x.isClaude ? "Claude" : "", x.p.plan || ""].filter(Boolean).join(" · ");
+  who.append(el("div", "kicker", kicker || " "), el("div", "name", x.isClaude ? n.detail : n.family));
+  who.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
+  if (x.extras.length) who.appendChild(el("div", "extras", x.extras.join(" · ")));
+  const room = el("div", "room " + t, x.score + "%");
+  room.appendChild(el("small", null, "ROOM"));
+  const status = el("div", "status " + t);
+  status.append(el("span", "dot"), x.out || x.warn ? x.note : x.score < 25 ? "Low on room" : isBest ? "Use this one" : "Ready");
+  const mid = el("div", "mid");
+  mid.append(room, status);
+  if (x.noteTitle) status.title = x.noteTitle;
+  const bars = el("div", "bars");
+  if (x.session) bars.appendChild(meter(x.s, "Session", x.session));
+  if (x.long) bars.appendChild(meter(x.w, x.longName, x.long));
+  if (x.fable) bars.appendChild(meter(x.f, "Fable", x.fable));
+  inner.append(who, mid, bars);
+  box.appendChild(inner);
+  return box;
+}
+
+// Pick the column count that gives every card the most room: try each count, size the cells, and
+// keep the one whose cards can hold the biggest text (cards want to be about as tall as wide).
+function fit() {
+  const grid = document.getElementById("cards"), n = grid.children.length;
+  if (!n || matchMedia("(max-width: 640px)").matches) return;
+  const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+  const W = grid.clientWidth, H = grid.clientHeight;
+  let best = { cols: 1, rows: n, size: 0 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const w = (W - gap * (cols - 1)) / cols, h = (H - gap * (rows - 1)) / rows;
+    const size = Math.min(w / 1.15, h);
+    if (size > best.size + 0.5) best = { cols, rows, size };
+  }
+  grid.style.setProperty("--cols", best.cols);
+  grid.style.setProperty("--rows", best.rows);
+}
+new ResizeObserver(fit).observe(document.documentElement);
 
 function render(data) {
   const providers = data.providers || {};
   const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean)
     .sort((a, b) => (a.out - b.out) || (b.score - a.score));
   const claude = rows.filter(x => x.isClaude), others = rows.filter(x => !x.isClaude);
-  const sections = document.getElementById("sections");
-  sections.textContent = "";
   const verdict = document.getElementById("verdict"), sub = document.getElementById("sub");
   verdict.textContent = ""; sub.textContent = "";
+  const pool = claude.length ? claude : rows;
+  const best = pool.find(x => !x.out);
   if (!rows.length) {
     verdict.textContent = "No accounts yet";
     sub.textContent = "Turn providers on in the OpenUsage menu bar app and they appear here.";
+  } else if (best) {
+    const n = label(best.id, best.p);
+    verdict.append("Use ", n.detail || n.family, el("span", "dim", " · " + best.score + "% room"));
+    const ready = rows.filter(x => !x.out).length;
+    sub.textContent = ready + " of " + rows.length + " accounts ready · room is an account's tightest limit";
   } else {
-    const pool = claude.length ? claude : rows;
-    const best = pool.find(x => !x.out);
-    if (best) {
-      const n = label(best.id, best.p);
-      verdict.append("Use ", n.detail || n.family, el("span", "dim", " · " + best.score + "% room"));
-      const ready = pool.filter(x => !x.out).length;
-      sub.textContent = [n.family + (best.p.plan ? " " + best.p.plan : ""), ready + " of " + pool.length + " ready",
-        "room is an account's tightest limit"].join(" · ");
-    } else {
-      const first = pool.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
-      verdict.textContent = "Every " + (claude.length ? "Claude " : "") + "account is out";
-      sub.textContent = first ? "First one back in " + left(first - Date.now()) : "No reset time reported yet";
-    }
+    const first = pool.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
+    verdict.textContent = "Every " + (claude.length ? "Claude " : "") + "account is out";
+    sub.textContent = first ? "First one back in " + left(first - Date.now()) : "No reset time reported yet";
   }
-  if (claude.length) sections.appendChild(section("Claude", claude.filter(x => !x.out).length + " of " + claude.length + " ready", claude, true));
-  if (others.length) sections.appendChild(section(claude.length ? "Other tools" : "Accounts", "", others, others.some(x => x.f != null)));
-  // Accounts whose last refresh failed: their row (if any) shows older numbers, so say which.
+  const grid = document.getElementById("cards");
+  grid.textContent = "";
+  for (const x of claude.concat(others)) grid.appendChild(card(x, x === best));
+  fit();
+  // Accounts whose last refresh failed: their card (if any) shows older numbers, so say which.
   const failed = (data.errors || []).map(e => {
     const p = providers[e.providerId];
     return (p && p.displayName || e.providerId) + (e.message ? " (" + e.message + ")" : "");

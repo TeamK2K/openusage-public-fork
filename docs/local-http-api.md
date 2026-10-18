@@ -16,7 +16,7 @@ account with the most room named on top. It reads `/v1/limits` from the same add
 itself every 30 seconds. Accounts whose last refresh failed are listed under the table, and the footer
 gives the age of the oldest numbers shown. Each row also has a Fable bar, an amber "runs out" note when
 usage is on pace to hit a limit before it resets, and a small line for reset passes and extra credit.
-The page opens with a one-line answer ("Use <account> · N% room") and groups accounts into Claude and other tools. Each row leads with its Room — the account's tightest limit — colour-coded green, amber or red; each bar shows when it resets, and the Status column speaks only when an account is out or on pace to run out. The page fills the browser window and scales its text with it; on a narrow window each account becomes a stacked card with labelled bars. `GET /seats` serves the same page. Settings → **Click Opens
+The page opens with a one-line answer ("Use <account> · N% room") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll). Each card leads with its Room — the account's tightest limit — colour-coded green, amber or red, a status (Ready, Low on room, Runs out …, Back in …) and its bars with reset times; the account to use is outlined. `GET /seats` serves the same page. Settings → **Click Opens
 Web Page** makes the menu bar icon open it.
 
 ### `GET /v1/limits`
