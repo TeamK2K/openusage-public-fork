@@ -6,6 +6,8 @@ Star your most important metrics straight into the menu bar strip.
 
 Right-click (or control-click) the menu bar icon for a quick menu with **Settings** and **Quit**. Left-click opens the popover as usual.
 
+With Settings → **Click Opens Web Page** on, a left click opens the [accounts page](local-http-api.md#get-) in your browser instead, and the right-click menu gains **Open Panel** on top so the popover is still one click away. If the page can't be served (the local API's port was taken at launch) the click opens the popover instead.
+
 ## Starring
 
 Star a metric from any row's right-click menu, or from the always-visible star beside a metric in Customize.

@@ -143,6 +143,35 @@ final class LocalUsageAPITests: XCTestCase {
     }
 }
 
+final class SeatsPageRouteTests: XCTestCase {
+    private let state = LocalUsageAPI.State(enabledOrderedIDs: [], knownIDs: [], snapshots: [:])
+
+    func testRootAndSeatsServeTheAccountsPageAsHTML() throws {
+        for path in ["/", "/seats", "/?from=menubar"] {
+            let page = LocalUsageAPI.respond(method: "GET", path: path, state: state)
+            XCTAssertEqual(page.status, 200, path)
+            XCTAssertEqual(page.contentType, "text/html; charset=utf-8", path)
+            let html = try XCTUnwrap(page.body.flatMap { String(data: $0, encoding: .utf8) })
+            XCTAssertTrue(html.contains("fetch(\"/v1/limits\""), "the page reads the same-origin limits route")
+        }
+    }
+
+    func testPageIsReadOnlyAndJSONRoutesKeepTheirType() {
+        XCTAssertEqual(LocalUsageAPI.respond(method: "POST", path: "/", state: state).status, 405)
+        XCTAssertEqual(LocalUsageAPI.respond(method: "GET", path: "/v1/limits", state: state).contentType, "application/json")
+    }
+
+    func testClickOpensPageIsOffByDefault() throws {
+        let suite = "SeatsPageRouteTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertFalse(SeatsPageSetting.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: SeatsPageSetting.key)
+        XCTAssertTrue(SeatsPageSetting.isEnabled(defaults: defaults))
+        XCTAssertEqual(SeatsPageSetting.url.port, 6736)
+    }
+}
+
 final class LocalUsageServerRequestLineTests: XCTestCase {
     func testParsesWellFormedRequestLine() {
         let (method, path) = LocalUsageServer.parseRequestLine("GET /v1/usage HTTP/1.1\r\nHost: localhost\r\n")

@@ -33,6 +33,9 @@ final class AppContainer {
     /// plus the live capture signal. Read by `StatusItemImageUpdater` to swap the strip for the
     /// wordmark while the screen is shared or recorded.
     let privacy: MenuBarPrivacyStore
+    /// The panel's real width (wide or regular, clamped to the display), shared by the panel
+    /// controller that sizes the window and the dashboard that lays out inside it.
+    let panelWidth = PanelWidthStore()
     /// One-time onboarding state (the first-run Customize hint card). Only ever marked pending by
     /// `FirstRunSeeder` on a fresh install, so existing installs never see the card.
     let onboarding: OnboardingStore
@@ -45,6 +48,8 @@ final class AppContainer {
     let providers: [ProviderRuntime]
     /// Read-only usage API on 127.0.0.1:6736 for other local apps (silently off when the port is taken).
     private let localAPI: LocalUsageServer
+    /// Whether that API is up, so the menu-bar click never sends the user to a page nobody serves.
+    var isLocalAPIListening: Bool { localAPI.isListening }
     /// `nil` until `startRefreshing()`, which the welcome screen delays until the user has picked providers.
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     /// The new-provider credential-detection pass (see `NewProviderSeeder`); `nil` unless this launch is
@@ -263,12 +268,13 @@ final class AppContainer {
         for key in [
             AppearanceSetting.key, TimeFormatSetting.key, DensitySetting.key,
             ReduceAnimationsSetting.key, LogLevelSetting.key, TotalSpendSetting.key,
-            TotalSpendSetting.periodKey, TotalSpendSetting.metricKey,
+            TotalSpendSetting.periodKey, TotalSpendSetting.metricKey, WideDashboardSetting.key, SeatsPageSetting.key,
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         KeyboardShortcuts.reset(.togglePopover)
         AppearanceSetting.applyCurrent()
+        WideDashboardSetting.notifyChanged()
         AppLog.reloadLevel()
         AppLog.info(.config, "All settings reset to defaults")
     }

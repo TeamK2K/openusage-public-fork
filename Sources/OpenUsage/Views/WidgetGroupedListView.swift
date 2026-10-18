@@ -21,20 +21,37 @@ struct WidgetGroupedListView: View {
     @State private var activeProviderID: String?
     @State private var activeMetricID: String?
     @AppStorage(DensitySetting.key) private var density = DensitySetting.regular
+    @AppStorage(WideDashboardSetting.key) private var wideDashboard = WideDashboardSetting.fallback
 
     @Environment(\.codexResetClaims) private var codexResetClaims
 
     var body: some View {
-        // Provider-section spacing is noticeably wider than the in-card row rhythm (so groups
-        // still read as groups); the exact step comes from the density setting.
-        VStack(alignment: .leading, spacing: density.sectionSpacing) {
-            ForEach(layout.displayGroups) { group in
-                section(group)
+        sections
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onPreferenceChange(ReorderFramePreferenceKey.self) { frameStore.frames = $0 }
+            .animation(Motion.spring, value: layout.displayGroups.map(\.provider.id))
+    }
+
+    /// Provider-section spacing is noticeably wider than the in-card row rhythm (so groups still read
+    /// as groups); the exact step comes from the density setting. The wide panel flows the same
+    /// sections three across, top-aligned, in the same order; reordering hit-tests each section's
+    /// frame, so it works across columns too.
+    @ViewBuilder
+    private var sections: some View {
+        if wideDashboard {
+            ColumnGridLayout(columns: WideDashboardSetting.columns, spacing: density.sectionSpacing) {
+                ForEach(layout.displayGroups) { group in
+                    section(group)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: density.sectionSpacing) {
+                ForEach(layout.displayGroups) { group in
+                    section(group)
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onPreferenceChange(ReorderFramePreferenceKey.self) { frameStore.frames = $0 }
-        .animation(Motion.spring, value: layout.displayGroups.map(\.provider.id))
     }
 
     private func section(_ group: ProviderGroup) -> some View {

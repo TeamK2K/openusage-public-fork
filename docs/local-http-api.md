@@ -8,6 +8,15 @@ The server starts automatically with the app. If the port is already in use, the
 
 ## Routes
 
+### `GET /`
+
+A compact accounts page for people, not scripts: one row per account with its session and weekly
+(or monthly) room, accounts that are out of room flagged in red with when they come back, and the Claude
+account with the most room named on top. It reads `/v1/limits` from the same address and refreshes
+itself every 30 seconds. Accounts whose last refresh failed are listed under the table, and the footer
+gives the age of the oldest numbers shown. `GET /seats` serves the same page. Settings → **Click Opens
+Web Page** makes the menu bar icon open it.
+
 ### `GET /v1/limits`
 
 Returns a machine-facing envelope for all **enabled** providers. Providers and resources are keyed by

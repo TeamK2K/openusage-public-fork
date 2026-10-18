@@ -248,6 +248,18 @@ func reorderTarget(
 
         // Reorder only after crossing partway into the target row. This avoids the jumpy feel where a row moves
         // as soon as the pointer barely enters a neighbor, while still feeling less delayed than the midpoint.
+        // A target beside the dragged item (same wide-dashboard grid row: vertical bands overlap, columns
+        // don't) is crossed horizontally instead, so a sideways drag along a header doesn't stall short of
+        // the y threshold. Single-column lists never have a neighbour beside them, so they're unaffected.
+        if let dragged = frames[draggedID],
+           frame.minY < dragged.maxY, dragged.minY < frame.maxY,
+           frame.maxX <= dragged.minX || dragged.maxX <= frame.minX {
+            if to > from {
+                return location.x >= frame.minX + frame.width * crossingThreshold ? id : nil
+            } else {
+                return location.x <= frame.maxX - frame.width * crossingThreshold ? id : nil
+            }
+        }
         if to > from {
             return location.y >= frame.minY + frame.height * crossingThreshold ? id : nil
         } else {
