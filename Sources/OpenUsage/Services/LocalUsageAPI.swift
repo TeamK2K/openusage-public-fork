@@ -33,6 +33,7 @@ enum LocalUsageAPI {
     struct Response: Equatable, Sendable {
         var status: Int
         var body: Data?
+        var contentType = "application/json"
     }
 
     static func respond(method: String, path: String, state: State) -> Response {
@@ -46,6 +47,11 @@ enum LocalUsageAPI {
             .map(String.init)
 
         switch (segments.count, segments.first, segments.dropFirst().first) {
+        case (0, _, _), (1, "seats", _):
+            // The concise accounts page; it reads `/v1/limits` from this same origin.
+            guard method == "GET" else { return error(405, "method_not_allowed") }
+            return Response(status: 200, body: SeatsPage.html, contentType: "text/html; charset=utf-8")
+
         case (2, "v1", "limits"):
             guard method == "GET" else { return error(405, "method_not_allowed") }
             return Response(

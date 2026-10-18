@@ -89,7 +89,9 @@ final class StatusItemController: NSObject {
             defer: false
         )
         self.panel = panel
-        self.heightController = PanelHeightController(panel: panel) { container.layout.screen }
+        self.heightController = PanelHeightController(panel: panel, widthStore: container.panelWidth) {
+            container.layout.screen
+        }
 
         super.init()
 
@@ -244,8 +246,28 @@ final class StatusItemController: NSObject {
             || event?.modifierFlags.contains(.control) == true
         if isContextClick {
             showContextMenu()
+        } else if SeatsPageSetting.isEnabled() {
+            openSeatsPage()
         } else {
             togglePopover()
+        }
+    }
+
+    /// Left click with "Click Opens Web Page" on: the concise accounts page in the default browser.
+    /// The page is served by the local API, so when that isn't listening (its port was taken at
+    /// launch) or the browser can't be asked, the click opens the panel instead of a dead tab.
+    private func openSeatsPage() {
+        guard container.isLocalAPIListening else {
+            AppLog.error(.statusItem, "Accounts page unavailable: the local API on port \(LocalUsageServer.port) isn't listening; opening the panel")
+            togglePopover()
+            return
+        }
+        if panel.isVisible { hidePanel() }
+        AppLog.info(.statusItem, "Opening the accounts page")
+        guard NSWorkspace.shared.open(SeatsPageSetting.url) else {
+            AppLog.error(.statusItem, "The browser didn't open \(SeatsPageSetting.url.absoluteString); opening the panel")
+            togglePopover()
+            return
         }
     }
 
@@ -260,6 +282,14 @@ final class StatusItemController: NSObject {
         if panel.isVisible { hidePanel() }
 
         let menu = NSMenu()
+        // With left click taken by the web page, the panel stays one right-click away.
+        if SeatsPageSetting.isEnabled() {
+            menu.addItem(ClosureMenuItem(title: "Open Panel", systemSymbol: "rectangle.grid.1x2", keyEquivalent: "") { [weak self] in
+                self?.container.layout.screen = .dashboard
+                self?.showPopover()
+            })
+            menu.addItem(.separator())
+        }
         menu.addItem(ClosureMenuItem(title: "Settings", systemSymbol: "gearshape", keyEquivalent: ",") { [weak self] in
             self?.openSettings()
         })

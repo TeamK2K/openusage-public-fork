@@ -16,6 +16,10 @@ When you expand a card, the tucked-away metrics open below the line as a single-
 
 A provider card can also show **quick-link buttons** pinned at the bottom of its expanded section — Status, Console, Dashboard, and the like — that open the provider's own pages in your default browser. They're part of the expander, so collapsing the caret hides them along with the tucked-away metrics. The caret sits below the links. Buttons lay out up to three across, wrapping to a second row when there are more.
 
+## Wide window
+
+With Settings → **Wide Window** on, the popover grows wider and provider cards sit three across, in the same order, so many accounts read at a glance without scrolling. Cards keep their usual content; dragging a provider header still reorders, sideways and across rows. Customize and Settings stay a centered column rather than stretching across the wider popover. Turning it on or off resizes the open popover in place; on a display too narrow for the full width, the popover and its columns shrink to fit.
+
 ## Total Spend
 
 When any enabled provider tracks daily spend (Claude, Codex, Cursor, Grok, or OpenCode), a card sits above the provider sections. The title is a pull-down menu for **Cost**, **Cost/MTok**, or **Tokens** (Cost is the default; the choice sticks across restarts). A capsule switcher flips the period between **Today**, **Yesterday**, and **30 Days**. The ring, center total, and ranked legend follow the selected metric:

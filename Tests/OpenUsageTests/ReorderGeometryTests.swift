@@ -77,4 +77,26 @@ final class ReorderGeometryTests: XCTestCase {
             orderedIDs: ["above", "divider", "dragged"],
         ), "divider")
     }
+
+    /// Wide dashboard: neighbours in one grid row share a band of y, so the crossing is horizontal —
+    /// a drag along the header (near the top of a tall card) still moves right and left.
+    func testCrossingThresholdWithinAGridRow() {
+        let frames = [
+            "left": CGRect(x: 0, y: 0, width: 300, height: 200),
+            "dragged": CGRect(x: 320, y: 0, width: 300, height: 120),
+            "right": CGRect(x: 640, y: 0, width: 300, height: 160)
+        ]
+        let order = ["left", "dragged", "right"]
+
+        XCTAssertNil(reorderTarget(at: CGPoint(x: 660, y: 10), in: frames, excluding: "dragged", orderedIDs: order))
+        XCTAssertEqual(
+            reorderTarget(at: CGPoint(x: 720, y: 10), in: frames, excluding: "dragged", orderedIDs: order),
+            "right"
+        )
+        XCTAssertNil(reorderTarget(at: CGPoint(x: 280, y: 10), in: frames, excluding: "dragged", orderedIDs: order))
+        XCTAssertEqual(
+            reorderTarget(at: CGPoint(x: 220, y: 10), in: frames, excluding: "dragged", orderedIDs: order),
+            "left"
+        )
+    }
 }

@@ -15,6 +15,9 @@ final class LocalUsageServer {
     private let queue = DispatchQueue(label: "openusage.local-api")
     private var listener: NWListener?
     private var activeConnections = 0
+    /// True once the listener is bound and accepting; false before that, after a bind failure (the
+    /// port taken), or once the listener stops.
+    private(set) var isListening = false
 
     init(state: @escaping @MainActor () -> LocalUsageAPI.State) {
         self.state = state
@@ -35,10 +38,22 @@ final class LocalUsageServer {
             return
         }
 
-        listener.stateUpdateHandler = { state in
-            if case .failed(let error) = state {
+        listener.stateUpdateHandler = { [weak self] state in
+            let listening: Bool
+            switch state {
+            case .ready:
+                listening = true
+            case .failed(let error):
                 // Most commonly the port is already in use — silently disable for this session.
                 AppLog.info(.localAPI, "disabled: \(error.localizedDescription)")
+                listening = false
+            case .waiting, .cancelled:
+                listening = false
+            default:
+                return
+            }
+            Task { @MainActor in
+                self?.isListening = listening
             }
         }
         listener.newConnectionHandler = { connection in
@@ -131,7 +146,7 @@ final class LocalUsageServer {
         head += "Access-Control-Allow-Headers: Content-Type\r\n"
         head += "Connection: close\r\n"
         if let body = response.body {
-            head += "Content-Type: application/json\r\n"
+            head += "Content-Type: \(response.contentType)\r\n"
             head += "Content-Length: \(body.count)\r\n\r\n"
             connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in
                 connection.cancel()
