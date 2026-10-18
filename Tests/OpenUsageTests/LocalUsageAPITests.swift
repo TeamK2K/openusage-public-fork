@@ -153,7 +153,8 @@ final class SeatsPageRouteTests: XCTestCase {
             XCTAssertEqual(page.contentType, "text/html; charset=utf-8", path)
             let html = try XCTUnwrap(page.body.flatMap { String(data: $0, encoding: .utf8) })
             XCTAssertTrue(html.contains("fetch(\"/v1/limits\""), "the page reads the same-origin limits route")
-            XCTAssertTrue(html.contains("<span>Fable</span>"), "the page carries the Fable column header")
+            XCTAssertTrue(html.contains("withFable ? \"Fable\" : \"\""), "the page carries the Fable column header")
+            XCTAssertTrue(html.contains("id=\"verdict\""), "the page leads with the which-account verdict")
         }
     }
 

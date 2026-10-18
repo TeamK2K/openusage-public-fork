@@ -13,69 +13,82 @@ enum SeatsPage {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Seats · OpenUsage</title>
+<title>AI accounts · OpenUsage</title>
 <style>
-:root { --bg:#f6f6f4; --card:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e6e5e0; --track:#ecebe6;
-        --bar:#2f7de1; --warn:#c98a12; --out:#d64545; --ok:#2f9e5b; }
+:root { --bg:#f7f7f5; --text:#1c1c1a; --muted:#6e6d68; --faint:#9c9b95; --line:#e4e3de; --track:#e9e8e3;
+        --bar:#2f7de1; --warn:#b97c0c; --out:#d13f3f; --ok:#23915a; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#161615; --card:#1f1f1d; --text:#ecebe6; --muted:#9a9993; --line:#2e2e2b; --track:#2e2e2b;
-          --bar:#4b95f0; --warn:#e0a640; --out:#f06a6a; --ok:#4cc27e; }
+  :root { --bg:#141413; --text:#edece6; --muted:#a3a29b; --faint:#6f6e69; --line:#2a2a27; --track:#2c2c29;
+          --bar:#4d96f2; --warn:#e3a43c; --out:#f06868; --ok:#52c886; }
 }
 * { box-sizing: border-box; }
-/* Fills the browser window and scales with it: type grows from phone to big screen, the rows share
-   the window's height, and under 760px each account becomes a stacked card with labelled bars. */
-html { font-size: clamp(15px, 0.7vw + 0.7vh + 6px, 30px); }
+/* Fills the window and scales with it: type grows from phone to big screen. */
+html { font-size: clamp(15px, 0.5vw + 0.5vh + 6px, 26px); }
 body { margin:0; background:var(--bg); color:var(--text);
-       font: 1rem/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
-main { min-height:100vh; display:flex; flex-direction:column; padding: clamp(16px, 3vw, 56px); }
-.best { color:var(--muted); margin: 0 0 .8em .25em; font-size:1.15em; overflow-wrap:anywhere; }
-.best b { color:var(--text); font-weight:600; }
-.card { flex:1; display:flex; flex-direction:column; background:var(--card); border:1px solid var(--line);
-        border-radius:.9em; overflow:hidden; }
-.row { flex:1 1 auto; display:grid; grid-template-columns: minmax(0,1.6fr) 1fr 1fr 1fr minmax(0,1fr);
-       gap:1.2em; align-items:center; padding:.8em 1.2em; border-top:1px solid var(--line); }
-.row:first-child { border-top:none; }
-.head { flex:none; color:var(--muted); font-size:.8em; padding-top:.7em; padding-bottom:.7em; }
-.name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:1.1em; }
-.name small { color:var(--muted); margin-left:.4em; font-size:.85em; }
-.acct { min-width:0; }
-.extras { font-size:.85em; color:var(--muted); margin-top:.2em; }
-.meter { display:flex; flex-wrap:wrap; align-items:center; gap:.25em .6em; }
-.when { width:100%; font-size:.78em; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.when.out { color:var(--out); }
-.track { flex:1; height:.5em; border-radius:.25em; background:var(--track); overflow:hidden; }
-.fill { height:100%; background:var(--bar); }
+       font: 1rem/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+main { min-height:100svh; padding: clamp(20px, 4vw, 72px) clamp(16px, 4vw, 72px) clamp(16px, 2.5vw, 40px);
+       display:flex; flex-direction:column; gap: 2.2em; }
+.top .kicker { margin:0 0 .3em; color:var(--muted); font-size:.85em; letter-spacing:.04em; text-transform:uppercase; }
+.top h1 { margin:0; font-size:2.3em; line-height:1.15; font-weight:650; letter-spacing:-.01em; overflow-wrap:anywhere; }
+.top h1 .dim { color:var(--muted); font-weight:500; }
+.top .sub { margin:.45em 0 0; color:var(--muted); font-size:1.1em; }
+.error { margin:.6em 0 0; color:var(--out); }
+section + section { margin-top:2.2em; }
+section h2 { margin:0 0 .5em; font-size:.85em; font-weight:600; color:var(--muted); letter-spacing:.04em; text-transform:uppercase;
+             display:flex; gap:.6em; align-items:baseline; }
+section h2 .count { font-weight:500; text-transform:none; letter-spacing:0; color:var(--faint); }
+.grid { display:grid; grid-template-columns: minmax(0,1.6fr) 5.5em repeat(var(--bars), minmax(0,1fr)) minmax(0,1fr);
+        column-gap:1.6em; align-items:center; }
+.cols { color:var(--faint); font-size:.78em; padding:0 0 .5em; border-bottom:1px solid var(--line); }
+.cols .r, .room, .status { text-align:right; }
+.row { padding:1em 0; border-bottom:1px solid var(--line); }
+.acct { min-width:0; display:flex; gap:.7em; align-items:flex-start; }
+.dot { flex:none; width:.6em; height:.6em; border-radius:50%; margin-top:.5em; background:var(--ok); }
+.dot.warn { background:var(--warn); } .dot.out { background:var(--out); }
+.who { min-width:0; }
+.name { font-size:1.12em; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.name small { font-weight:400; color:var(--muted); margin-left:.4em; font-size:.85em; }
+.extras { color:var(--muted); font-size:.82em; margin-top:.15em; }
+.room { font-size:1.7em; font-weight:650; font-variant-numeric: tabular-nums; line-height:1; }
+.room.warn { color:var(--warn); } .room.out { color:var(--out); }
+.room small { display:block; font-size:.42em; font-weight:500; color:var(--faint); margin-top:.35em; letter-spacing:.03em; }
+.meter { display:grid; grid-template-columns: 1fr auto; column-gap:.6em; row-gap:.3em; align-items:center; }
+.na { color:var(--faint); }
+.track { height:.42em; border-radius:.21em; background:var(--track); overflow:hidden; }
+.fill { height:100%; background:var(--bar); border-radius:.21em; }
 .fill.warn { background:var(--warn); } .fill.out { background:var(--out); }
-.pct { width:3.2em; text-align:right; color:var(--muted); font-variant-numeric: tabular-nums; }
+.pct { color:var(--muted); font-variant-numeric: tabular-nums; font-size:.9em; min-width:2.6em; text-align:right; }
 .pct.out { color:var(--out); }
-.note { text-align:right; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.note.out { color:var(--out); }
-.note.warn { color:var(--warn); }
-.note.ok { color:var(--ok); }
+.when { grid-column: 1 / -1; font-size:.78em; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.when.out { color:var(--out); }
+.status { color:var(--muted); font-size:.95em; }
+.status.warn { color:var(--warn); } .status.out { color:var(--out); }
 .stale { opacity:.55; }
-footer { color:var(--muted); font-size:.85em; margin:.8em .3em 0; }
-.error { color:var(--out); margin: 0 0 .8em .25em; }
-.issues { color:var(--warn); font-size:.9em; margin: .8em .3em 0; }
-.empty { color:var(--muted); padding:1em 1.2em; border-top:1px solid var(--line); }
+.empty { color:var(--muted); padding:1em 0; }
+.issues { margin:0; color:var(--warn); font-size:.9em; }
+footer { margin-top:auto; color:var(--faint); font-size:.82em; }
 @media (max-width: 760px) {
-  .head { display:none; }
-  .row { grid-template-columns: repeat(3, minmax(0,1fr)); grid-template-areas: "acct acct note" "s w f";
-         gap:.6em 1em; padding:.9em 1em; }
-  .acct { grid-area: acct; } .note { grid-area: note; }
-  .meter { flex-wrap:wrap; gap:.2em .5em; }
-  .meter::before { content: attr(data-label); width:100%; font-size:.75em; color:var(--muted); }
-  .pct { width:auto; }
-  .note { white-space:normal; }
+  main { gap:1.6em; }
+  .top h1 { font-size:1.7em; }
+  .cols { display:none; }
+  .grid { grid-template-columns: repeat(var(--bars), minmax(0,1fr)); grid-template-areas: "acct acct room" "bars bars bars" "status status status";
+          row-gap:.7em; column-gap:1em; }
+  .acct { grid-column: 1 / -2; } .room { grid-column: -2 / -1; }
+  .meter::before { content: attr(data-label); grid-column: 1 / -1; font-size:.75em; color:var(--faint); }
+  .status { grid-column: 1 / -1; text-align:left; }
+  .status:empty { display:none; }
 }
 </style>
 </head>
 <body>
 <main>
-  <p class="best" id="best"></p>
-  <p class="error" id="error" hidden>OpenUsage isn't answering. Is the app running?</p>
-  <div class="card" id="table">
-    <div class="row head"><span>Account</span><span>Session</span><span>Weekly</span><span>Fable</span><span style="text-align:right">Status</span></div>
-  </div>
+  <header class="top">
+    <p class="kicker">AI accounts</p>
+    <h1 id="verdict">Loading…</h1>
+    <p class="sub" id="sub"></p>
+    <p class="error" id="error" hidden>OpenUsage isn't answering on this Mac. Open the OpenUsage menu bar app, then this page refreshes by itself.</p>
+  </header>
+  <div id="sections"></div>
   <p class="issues" id="issues" hidden></p>
   <footer id="footer"></footer>
 </main>
@@ -104,6 +117,7 @@ function resetText(res, value) {
   return (value === 0 ? "back " : "resets ") + (ms < 86400000 ? "in " + left(ms) : stamp(new Date(res.resetsAt).getTime()));
 }
 function meter(value, label, res) {
+  if (value == null && !res) return el("div", "na", "—");
   const box = el("div", "meter"), track = el("div", "track");
   box.dataset.label = label;
   if (value != null) {
@@ -164,7 +178,7 @@ function toRow(id, p) {
   if (!session && !long) return null;
   const s = pct(session), w = pct(long), f = pct(fable);
   const score = Math.min(s ?? 100, w ?? 100, f ?? 100);
-  let note = "Ready", out = false, warn = false, noteTitle = "";
+  let note = "Ready", out = false, warn = false, noteTitle = "", backMs = null;
   const now = Date.now();
   const longName = long && long.windowSeconds > 8 * 86400 ? "Monthly" : "Weekly";
   const soon = [["Session", session], [longName, long], ["Fable", fable]]
@@ -173,7 +187,8 @@ function toRow(id, p) {
   if (blocked.length) {
     out = true;
     const latest = blocked.map(([, res]) => res && res.resetsAt).filter(Boolean).sort().pop();
-    note = latest ? "Out · back in " + until(latest) : "Out of room";
+    note = latest ? "Back in " + until(latest) : "Out of room";
+    backMs = latest ? new Date(latest).getTime() : null;
   } else if (soon) {
     const when = soon.fullMs - now < 86400000 ? "in " + left(soon.fullMs - now) : stamp(soon.fullMs);
     warn = true;
@@ -181,44 +196,81 @@ function toRow(id, p) {
     noteTitle = soon.name + " on pace to run out " + (soon.fullMs - now < 86400000 ? when : stamp(soon.fullMs)) +
       ", before it resets " + stamp(soon.resetMs);
   }
-  return { id, p, s, w, f, session, long, fable, score, longName, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
+  return { id, p, s, w, f, session, long, fable, score, backMs, longName, note, noteTitle, warn, out, extras: extras(r), isClaude: id.startsWith("claude") };
 }
 
 function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 
-function render(data) {
-  const providers = data.providers || {};
-  const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean);
-  const claude = rows.filter(x => x.isClaude).sort((a, b) => b.score - a.score);
-  const others = rows.filter(x => !x.isClaude);
-  const table = document.getElementById("table");
-  table.querySelectorAll(".row:not(.head), .empty").forEach(n => n.remove());
-  if (!rows.length) {
-    table.appendChild(el("div", "empty", "No account has usage limits to show yet. Turn providers on in OpenUsage."));
-  }
-  for (const x of claude.concat(others)) {
-    const row = el("div", "row" + (x.p.stale ? " stale" : ""));
-    const name = label(x.id, x.p), acct = el("div", "acct"), cell = el("div", "name");
+// How a row reads: out (a limit at 0), warn (on pace to run out, or under 25% left), else ready.
+function tone(x) { return x.out ? "out" : (x.warn || x.score < 25) ? "warn" : "ok"; }
+function statusText(x) { return x.out || x.warn ? x.note : ""; }
+
+// Every section keeps the same five columns so Room and the bars line up down the whole page.
+function section(title, count, rows, withFable) {
+  const bars = 3;
+  const box = el("section");
+  const h = el("h2", null, title);
+  if (count) h.appendChild(el("span", "count", count));
+  box.appendChild(h);
+  const cols = el("div", "grid cols");
+  cols.style.setProperty("--bars", bars);
+  const longs = [...new Set(rows.filter(x => x.long).map(x => x.longName))];
+  cols.append(el("span", null, "Account"), el("span", "r", "Room"), el("span", null, "Session"),
+    el("span", null, longs.length > 1 ? "Week / month" : longs[0] || "Weekly"));
+  cols.appendChild(el("span", null, withFable ? "Fable" : ""));
+  cols.appendChild(el("span", "r", "Status"));
+  box.appendChild(cols);
+  for (const x of rows) {
+    const t = tone(x);
+    const row = el("div", "grid row" + (x.p.stale ? " stale" : ""));
+    row.style.setProperty("--bars", bars);
+    const name = label(x.id, x.p), acct = el("div", "acct"), who = el("div", "who"), cell = el("div", "name");
     cell.append(name.family, el("small", null, name.detail));
     cell.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
-    acct.appendChild(cell);
-    if (x.extras.length) acct.appendChild(el("div", "extras", x.extras.join(" · ")));
-    const note = el("div", "note" + (x.out ? " out" : x.warn ? " warn" : " ok"), x.note);
-    if (x.noteTitle) note.title = x.noteTitle;
-    row.append(acct, meter(x.s, "Session", x.session), meter(x.w, x.longName, x.long), meter(x.f, "Fable", x.fable), note);
-    table.appendChild(row);
+    who.appendChild(cell);
+    if (x.extras.length) who.appendChild(el("div", "extras", x.extras.join(" · ")));
+    acct.append(el("span", "dot " + t), who);
+    const room = el("div", "room " + t, x.score + "%");
+    room.appendChild(el("small", null, "ROOM"));
+    row.append(acct, room, meter(x.s, "Session", x.session), meter(x.w, x.longName, x.long));
+    row.appendChild(withFable ? meter(x.f, "Fable", x.fable) : el("div"));
+    const status = el("div", "status " + t, statusText(x));
+    if (x.noteTitle) status.title = x.noteTitle;
+    row.appendChild(status);
+    box.appendChild(row);
   }
-  const best = claude.find(x => !x.out);
-  const bestLine = document.getElementById("best");
-  bestLine.textContent = "";
-  if (best) {
-    const n = label(best.id, best.p);
-    bestLine.append("Most room now: ", el("b", null, n.family + " · " + n.detail));
-  } else if (claude.length) {
-    bestLine.textContent = "Every Claude account is out of room right now.";
+  return box;
+}
+
+function render(data) {
+  const providers = data.providers || {};
+  const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean)
+    .sort((a, b) => (a.out - b.out) || (b.score - a.score));
+  const claude = rows.filter(x => x.isClaude), others = rows.filter(x => !x.isClaude);
+  const sections = document.getElementById("sections");
+  sections.textContent = "";
+  const verdict = document.getElementById("verdict"), sub = document.getElementById("sub");
+  verdict.textContent = ""; sub.textContent = "";
+  if (!rows.length) {
+    verdict.textContent = "No accounts yet";
+    sub.textContent = "Turn providers on in the OpenUsage menu bar app and they appear here.";
+  } else {
+    const pool = claude.length ? claude : rows;
+    const best = pool.find(x => !x.out);
+    if (best) {
+      const n = label(best.id, best.p);
+      verdict.append("Use ", n.detail || n.family, el("span", "dim", " · " + best.score + "% room"));
+      const ready = pool.filter(x => !x.out).length;
+      sub.textContent = [n.family + (best.p.plan ? " " + best.p.plan : ""), ready + " of " + pool.length + " ready",
+        "room is an account's tightest limit"].join(" · ");
+    } else {
+      const first = pool.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
+      verdict.textContent = "Every " + (claude.length ? "Claude " : "") + "account is out";
+      sub.textContent = first ? "First one back in " + left(first - Date.now()) : "No reset time reported yet";
+    }
   }
-  const ready = rows.filter(x => !x.out).length;
-  if (rows.length) bestLine.append((bestLine.textContent ? "  ·  " : "") + ready + " of " + rows.length + " accounts ready");
+  if (claude.length) sections.appendChild(section("Claude", claude.filter(x => !x.out).length + " of " + claude.length + " ready", claude, true));
+  if (others.length) sections.appendChild(section(claude.length ? "Other tools" : "Accounts", "", others, others.some(x => x.f != null)));
   // Accounts whose last refresh failed: their row (if any) shows older numbers, so say which.
   const failed = (data.errors || []).map(e => {
     const p = providers[e.providerId];
