@@ -16,7 +16,7 @@ account with the most room named on top. It reads `/v1/limits` from the same add
 itself every 30 seconds. Accounts whose last refresh failed are listed under the table, and the footer
 gives the age of the oldest numbers shown. Each row also has a Fable bar, an amber "runs out" note when
 usage is on pace to hit a limit before it resets, and a small line for reset passes and extra credit.
-The page fills the browser window and scales its text with it; on a narrow window each account becomes a stacked card with labelled bars. `GET /seats` serves the same page. Settings → **Click Opens
+Each bar shows when it resets, a Status column reads Ready, Runs out or Out, and the top line counts how many accounts are ready. The page fills the browser window and scales its text with it; on a narrow window each account becomes a stacked card with labelled bars. `GET /seats` serves the same page. Settings → **Click Opens
 Web Page** makes the menu bar icon open it.
 
 ### `GET /v1/limits`
