@@ -93,6 +93,7 @@ enum LocalUsageAPI {
     }
 
     static let busy = error(503, "server_busy")
+    static let headTooLarge = error(431, "request_header_too_large")
 
     private static func error(_ status: Int, _ code: String) -> Response {
         Response(status: status, body: Data(#"{"error":"\#(code)"}"#.utf8))

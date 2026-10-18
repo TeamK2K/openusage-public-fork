@@ -9,7 +9,11 @@ import Network
 final class LocalUsageServer {
     static let port: UInt16 = 6736
     private static let maxConcurrentConnections = 16
-    private static let headLimit = 8192
+    /// Browsers send every cookie set for `127.0.0.1` by any local dev server, whatever its port, so
+    /// a real Chrome request head runs to tens of KB. 8 KB reset those connections ("This site can't
+    /// be reached") while curl worked; this matches Chrome's own 256 KB request-header cap.
+    private static let headLimit = 256 * 1024
+    private static let receiveChunk = 64 * 1024
 
     private let state: @MainActor () -> LocalUsageAPI.State
     private let queue = DispatchQueue(label: "openusage.local-api")
@@ -78,7 +82,7 @@ final class LocalUsageServer {
     /// Reads until the end of the request head (`\r\n\r\n`). GET/OPTIONS bodies are irrelevant,
     /// so the head is all the router needs.
     private func receiveHead(_ connection: NWConnection, buffered: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: Self.headLimit) { data, _, isComplete, error in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: Self.receiveChunk) { data, _, isComplete, error in
             Task { @MainActor [weak self] in
                 guard let self else {
                     connection.cancel()
@@ -91,7 +95,9 @@ final class LocalUsageServer {
                 if let headEnd = buffered.range(of: Data("\r\n\r\n".utf8)) {
                     let head = String(data: buffered[..<headEnd.lowerBound], encoding: .utf8) ?? ""
                     self.finish(connection, with: self.route(head: head))
-                } else if error != nil || isComplete || buffered.count >= Self.headLimit {
+                } else if buffered.count >= Self.headLimit {
+                    self.finish(connection, with: LocalUsageAPI.headTooLarge)
+                } else if error != nil || isComplete {
                     self.finish(connection, with: nil)
                 } else {
                     self.receiveHead(connection, buffered: buffered)
@@ -137,6 +143,7 @@ final class LocalUsageServer {
         case 204: "No Content"
         case 404: "Not Found"
         case 405: "Method Not Allowed"
+        case 431: "Request Header Fields Too Large"
         case 503: "Service Unavailable"
         default: "OK"
         }
