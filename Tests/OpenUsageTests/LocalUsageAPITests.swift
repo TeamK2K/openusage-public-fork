@@ -157,6 +157,7 @@ final class SeatsPageRouteTests: XCTestCase {
             XCTAssertTrue(html.contains("id=\"cards\""), "accounts are laid out as cards fitted to one screen")
             XCTAssertTrue(html.contains("id=\"verdict\""), "the page leads with the which-account verdict")
             XCTAssertTrue(html.contains(".sort(byUseFirst)"), "cards are ordered soonest reset first")
+            XCTAssertTrue(html.contains("p.usageRoseAt"), "the account being used right now is badged")
         }
     }
 

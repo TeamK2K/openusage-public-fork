@@ -255,6 +255,74 @@ final class LocalLimitsAPITests: XCTestCase {
         XCTAssertEqual(actual, expected)
     }
 
+    func testUsageRoseOnlyWhenAConsumptionTotalGrewBetweenCloseRefreshes() {
+        let provider = Provider(id: "claude", displayName: "Claude", icon: .providerMark("claude"))
+        let session = WidgetDescriptor.percent(id: "claude.session", provider: provider, title: "Session")
+            .exportingLimit("session", unit: "percent")
+        let credits = WidgetDescriptor.combined(
+            id: "claude.credits", provider: provider, title: "Extra Usage", metricLabel: "Credits"
+        )
+        .exportingLimit("credits", kind: .balance, unit: "credits", source: .value(kind: .count, label: "credits"))
+        let weekly = WidgetDescriptor.percent(id: "claude.weekly", provider: provider, title: "Weekly")
+            .exportingLimit("weekly", unit: "percent")
+        func snapshot(
+            used: Double?, limit: Double = 100, credits: Double = 500, name: String = "Claude: a@example.com",
+            after seconds: TimeInterval
+        ) -> ProviderSnapshot {
+            var lines: [MetricLine] = [
+                .progress(label: "Weekly", used: 20, limit: 100, format: .percent),
+                .values(label: "Credits", values: [MetricValue(number: credits, kind: .count, label: "credits")])
+            ]
+            if let used { lines.append(.progress(label: "Session", used: used, limit: limit, format: .count(suffix: "requests"))) }
+            return ProviderSnapshot(
+                providerID: "claude", displayName: name, lines: lines, refreshedAt: fetchedAt.addingTimeInterval(seconds)
+            )
+        }
+        let old = snapshot(used: 40, after: 0)
+        let descriptors = [session, weekly, credits]
+
+        XCTAssertTrue(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 43, after: 300), descriptors: descriptors))
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 40, after: 300), descriptors: descriptors),
+                       "no change is not use")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 3, after: 300), descriptors: descriptors),
+                       "a window reset lowers the total")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 40, credits: 200, after: 300),
+                                                descriptors: descriptors), "a balance moving is not usage")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 60, after: LocalLimitsAPI.activityGap + 1),
+                                                descriptors: descriptors), "usage made while the app was closed")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: snapshot(used: 43, after: 300), to: old, descriptors: descriptors),
+                       "an older snapshot never counts")
+        XCTAssertTrue(LocalLimitsAPI.usageRose(from: snapshot(used: nil, after: 0), to: snapshot(used: 2, after: 300),
+                                               descriptors: descriptors), "an idle window that appears in use")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: snapshot(used: nil, after: 0), to: snapshot(used: 0, after: 300),
+                                                descriptors: descriptors), "an idle window that appears unused")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 45, limit: 50, after: 300),
+                                                descriptors: descriptors), "a plan change moves the limit")
+        XCTAssertFalse(LocalLimitsAPI.usageRose(from: old, to: snapshot(used: 45, name: "Claude: b@example.com", after: 300),
+                                                descriptors: descriptors), "a different account on the same card")
+    }
+
+    func testLimitsEnvelopeCarriesUsageRoseAtOnlyWhenKnown() throws {
+        let provider = Provider(id: "codex", displayName: "Codex", icon: .providerMark("codex"))
+        let session = WidgetDescriptor.percent(id: "codex.session", provider: provider, title: "Session")
+            .exportingLimit("session", unit: "percent")
+        let snapshot = ProviderSnapshot(
+            providerID: "codex",
+            displayName: "Codex",
+            lines: [.progress(label: "Session", used: 42, limit: 100, format: .percent)],
+            refreshedAt: fetchedAt
+        )
+        var state = makeState(snapshot: snapshot, descriptors: [session])
+        func providerJSON() throws -> [String: Any] {
+            let root = try json(LocalUsageAPI.respond(method: "GET", path: "/v1/limits", state: state).body)
+            return try XCTUnwrap((root["providers"] as? [String: Any])?["codex"] as? [String: Any])
+        }
+
+        XCTAssertNil(try providerJSON()["usageRoseAt"])
+        state.usageRoseAt = ["codex": fetchedAt]
+        XCTAssertEqual(try providerJSON()["usageRoseAt"] as? String, "2026-07-13T01:39:30.000Z")
+    }
+
     private func makeState(snapshot: ProviderSnapshot, descriptors: [WidgetDescriptor]) -> LocalUsageAPI.State {
         LocalUsageAPI.State(
             enabledOrderedIDs: [snapshot.providerID],

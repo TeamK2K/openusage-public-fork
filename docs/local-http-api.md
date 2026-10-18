@@ -16,7 +16,7 @@ account with the most room named on top. It reads `/v1/limits` from the same add
 itself every 30 seconds. Accounts whose last refresh failed are listed under the table, and the footer
 gives the age of the oldest numbers shown. Each row also has a Fable bar, an amber "runs out" note when
 usage is on pace to hit a limit before it resets, and a small line for reset passes and extra credit.
-The page opens with a one-line answer ("Use <account> · N% left, resets in X") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll). Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and when that reset comes, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out …, Back in …) and its bars with reset times. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. `GET /seats` serves the same page. Settings → **Click Opens
+The page opens with a one-line answer ("Use <account> · N% left, resets in X") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll). Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and when that reset comes, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out …, Back in …) and its bars with reset times. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. An **In use** badge marks every account whose usage was seen going up in the last 15 minutes (the provider's `usageRoseAt`), so you can see when a session runs on a different account than the outlined one. `GET /seats` serves the same page. Settings → **Click Opens
 Web Page** makes the menu bar icon open it.
 
 ### `GET /v1/limits`
@@ -104,7 +104,7 @@ Methods other than `GET`/`OPTIONS` return **405**; unknown routes return **404**
 `remaining`, and a 0–1 `utilization`. Reset, window, expiry-list, and `estimated` fields appear only when
 the provider supplies that meaning. A provider or resource with no current value is omitted rather than
 invented as zero. `expiresAt` is always `fetchedAt` plus the same five-minute freshness interval used by
-the app and CLI; `stale` says whether that instant has passed. Refresh failures appear in `errors` as
+the app and CLI; `stale` says whether that instant has passed. `usageRoseAt` (HTTP API only) is the latest refresh at which one of the provider's consumption totals went up compared with its previous refresh, counted only between refreshes at most 15 minutes apart so usage made while the app was closed never shows; it is omitted until the app has seen a rise since launch. Refresh failures appear in `errors` as
 `{"providerId":"…","message":"…"}` while a last-good provider snapshot remains available.
 For bounded progress resources, `unit` follows the provider's live metric format. For example, Cursor
 `totalUsage` is `percent` on percentage-based plans, `requests` on request-based Enterprise plans, and
