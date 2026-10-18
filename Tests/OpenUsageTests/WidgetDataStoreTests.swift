@@ -632,6 +632,36 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertFalse(reloaded.alwaysShowPacing)
     }
 
+    /// The local page's "In use" badge: stamped when a refresh shows more usage than the one before,
+    /// kept through a refresh with no change, and not moved by a window reset.
+    func testUsageRoseAtStampsTheRefreshThatShowedMoreUsage() async {
+        let provider = Provider(id: "test", displayName: "Test", icon: .providerMark("claude"))
+        let session = WidgetDescriptor.percent(id: "test.session", provider: provider, title: "Session")
+            .exportingLimit("session", unit: "percent")
+        let start = Date()
+        let snapshots = [(40.0, 0.0), (43, 300), (43, 600), (3, 900)].map { used, seconds in
+            ProviderSnapshot(
+                providerID: provider.id,
+                displayName: provider.displayName,
+                lines: [.progress(label: "Session", used: used, limit: 100, format: .percent)],
+                refreshedAt: start.addingTimeInterval(seconds)
+            )
+        }
+        let store = WidgetDataStore(
+            registry: WidgetRegistry(providers: [provider], descriptors: [session]),
+            providers: [SequenceProviderRuntime(provider: provider, descriptors: [session], snapshots: snapshots)],
+            defaults: makeUserDefaults("usage-rose-at")
+        )
+
+        await store.refreshAll(force: true)
+        XCTAssertNil(store.usageRoseAt[provider.id], "one refresh has nothing to compare with")
+        await store.refreshAll(force: true)
+        XCTAssertEqual(store.usageRoseAt[provider.id], start.addingTimeInterval(300))
+        await store.refreshAll(force: true)
+        await store.refreshAll(force: true)
+        XCTAssertEqual(store.usageRoseAt[provider.id], start.addingTimeInterval(300), "no change and a reset keep the stamp")
+    }
+
     private func makeUserDefaults(_ name: String) -> UserDefaults {
         let suiteName = "OpenUsageTests.\(name).\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

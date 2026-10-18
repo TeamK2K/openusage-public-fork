@@ -74,6 +74,10 @@ final class WidgetDataStore {
     /// Last-good snapshots produced on this Mac. These alone are cached and exported to iCloud, so a
     /// peer contribution can never echo back out and multiply on the next device.
     private(set) var localSnapshots: [String: ProviderSnapshot] = [:]
+    /// When each account's usage last went up between two of its refreshes on this Mac — how the local
+    /// accounts page tells which account is being used right now. In memory only: a fresh launch
+    /// knows nothing until usage rises again.
+    private(set) var usageRoseAt: [String: Date] = [:]
     var refreshingProviderIDs: Set<String> = []
     /// Wall-clock time the most recent full refresh pass finished. Together with the chosen refresh
     /// cadence it drives the dashboard footer's live "Next update in …" countdown, so the footer reflects
@@ -303,6 +307,7 @@ final class WidgetDataStore {
             // re-assigning an unchanged snapshot would re-render the menu-bar label every pass.
             AppLog.debug(.refresh, "cache hit \(providerID)")
             if localSnapshots[providerID] != cached {
+                noteUsageRise(providerID, to: cached)
                 localSnapshots[providerID] = cached
                 rebuildRenderedSnapshots()
             }
@@ -386,6 +391,7 @@ final class WidgetDataStore {
             )
             AppLog.debug(.refresh, "preserved last-good history for \(providerID) after scan miss")
         }
+        noteUsageRise(providerID, to: snapshot)
         localSnapshots[providerID] = snapshot
         // Stamp the write with the card's launch-resolved account identity; nil (no stamp) for
         // non-account providers and for cards whose identity didn't resolve this launch.
@@ -522,6 +528,17 @@ final class WidgetDataStore {
             )
         }
         snapshots = rendered
+    }
+
+    /// Stamps `usageRoseAt` when a snapshot about to replace the provider's last one shows more usage.
+    private func noteUsageRise(_ providerID: String, to snapshot: ProviderSnapshot) {
+        guard let previous = localSnapshots[providerID],
+              LocalLimitsAPI.usageRose(
+                  from: previous, to: snapshot,
+                  descriptors: registry.limitDescriptorsByProvider[providerID] ?? []
+              )
+        else { return }
+        usageRoseAt[providerID] = snapshot.refreshedAt
     }
 
     /// The provider's latest refresh error, or `nil` when its last refresh succeeded.

@@ -214,7 +214,8 @@ final class AppContainer {
                 knownIDs: Set(registry.providers.map(\.id)),
                 snapshots: dataStore.snapshots,
                 limitDescriptors: registry.limitDescriptorsByProvider,
-                errors: dataStore.providerErrors
+                errors: dataStore.providerErrors,
+                usageRoseAt: dataStore.usageRoseAt
             )
         })
         localAPI.start()

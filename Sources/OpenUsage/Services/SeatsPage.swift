@@ -44,6 +44,11 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
       font-size: clamp(10px, min(5.4cqh, 6.4cqw), 26px); }
 .who { min-width:0; }
 .mid { display:flex; justify-content:space-between; align-items:flex-end; gap:.8em; }
+.krow { display:flex; align-items:center; gap:.6em; min-width:0; }
+.krow .kicker { flex:1; min-width:0; }
+/* On the account whose usage went up in the last 15 minutes: the one being used right now. */
+.inuse { flex:none; font-size:.68em; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--bar);
+         border:1px solid var(--bar); border-radius:999px; padding:0 .6em; line-height:1.25; }
 .kicker { font-size:.72em; color:var(--faint); letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* The account's email is its name: never cut off, it wraps at the @ onto a second line instead. */
 .name { font-size:1.2em; font-weight:650; line-height:1.15; overflow-wrap:anywhere; overflow:hidden;
@@ -206,6 +211,11 @@ function byUseFirst(a, b) {
   return rank(a) - rank(b) || (at ?? Infinity) - (bt ?? Infinity) || b.leftover - a.leftover;
 }
 
+// In use: the app saw this account's usage go up within the last 15 minutes (about three refreshes),
+// so a session is running on it now — whichever account the page recommends.
+const IN_USE_MS = 15 * 60000;
+function inUse(p) { return !!p.usageRoseAt && Date.now() - new Date(p.usageRoseAt) <= IN_USE_MS; }
+
 // An account goes by its email (Claude) or, where the app has no email, its product name.
 function accountName(x) { const n = label(x.id, x.p); return x.isClaude ? n.detail : n.family; }
 function nameEl(text) {
@@ -243,7 +253,14 @@ function card(x, isBest) {
   const inner = el("div", "in");
   const who = el("div", "who");
   const kicker = [x.isClaude ? "Claude" : "", x.p.plan || ""].filter(Boolean).join(" · ");
-  who.append(el("div", "kicker", kicker || " "), nameEl(accountName(x)));
+  const krow = el("div", "krow");
+  krow.appendChild(el("div", "kicker", kicker || " "));
+  if (inUse(x.p)) {
+    const badge = el("span", "inuse", "In use");
+    badge.title = "Usage seen going up " + left(Date.now() - new Date(x.p.usageRoseAt)) + " ago: a session is running on this account";
+    krow.appendChild(badge);
+  }
+  who.append(krow, nameEl(accountName(x)));
   who.title = (x.p.displayName || x.id) + (x.p.plan ? " · " + x.p.plan : "");
   if (x.extras.length) who.appendChild(el("div", "extras", x.extras.join(" · ")));
   const room = el("div", "room " + (x.out ? "out" : x.warn || x.leftover < 25 ? "warn" : "ok"), x.leftover + "%");

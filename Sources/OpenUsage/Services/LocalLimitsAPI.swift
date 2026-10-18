@@ -14,6 +14,7 @@ enum LocalLimitsAPI {
             providers[providerID] = WireProvider(
                 snapshot: snapshot,
                 descriptors: descriptors,
+                usageRoseAt: state.usageRoseAt[providerID],
                 generatedAt: state.generatedAt
             )
         }
@@ -26,6 +27,41 @@ enum LocalLimitsAPI {
             providers: providers,
             errors: errors
         ))
+    }
+
+    /// Refreshes further apart than this are never compared for activity: usage made while the app
+    /// was closed (a launch-cached snapshot hours old) must not read as "in use now". Three refresh
+    /// intervals, so one slow or failed pass doesn't break the chain.
+    static let activityGap: TimeInterval = 3 * RefreshSetting.interval
+
+    /// Whether an account's usage went up between two of its refreshes: any consumption total the
+    /// envelope publishes grew, or a window that was absent (idle) appeared already in use. Balances
+    /// are left out — a credit top-up or a reset pass isn't usage — and so are a total that fell (a
+    /// window reset), a total whose limit changed (a plan change moves a percentage with no use), and
+    /// a card whose account changed in between (its display name names the account).
+    static func usageRose(from old: ProviderSnapshot, to new: ProviderSnapshot, descriptors: [WidgetDescriptor]) -> Bool {
+        let gap = new.refreshedAt.timeIntervalSince(old.refreshedAt)
+        guard gap > 0, gap <= activityGap, old.displayName == new.displayName else { return false }
+        let before = consumption(of: old, descriptors: descriptors)
+        return consumption(of: new, descriptors: descriptors).contains { key, now in
+            guard let then = before[key] else { return !before.isEmpty && now.used > 0 }
+            return then.limit == now.limit && now.used > then.used
+        }
+    }
+
+    private static func consumption(
+        of snapshot: ProviderSnapshot,
+        descriptors: [WidgetDescriptor]
+    ) -> [String: (used: Double, limit: Double?)] {
+        var totals: [String: (used: Double, limit: Double?)] = [:]
+        for descriptor in descriptors {
+            guard let line = snapshot.line(label: descriptor.metricLabel) else { continue }
+            for resource in descriptor.limitResources where resource.kind == .consumption {
+                guard let wire = WireResource(resource: resource, line: line), let used = wire.used else { continue }
+                totals[resource.key] = (used, wire.limit)
+            }
+        }
+        return totals
     }
 
     private static func encode(_ value: some Encodable) -> Data {
@@ -57,12 +93,15 @@ enum LocalLimitsAPI {
         let fetchedAt: String
         let expiresAt: String
         let stale: Bool
+        /// The latest refresh at which this account's usage went up; omitted until one is seen.
+        let usageRoseAt: String?
         let resources: [String: WireResource]
 
-        init(snapshot: ProviderSnapshot, descriptors: [WidgetDescriptor], generatedAt: Date) {
+        init(snapshot: ProviderSnapshot, descriptors: [WidgetDescriptor], usageRoseAt: Date?, generatedAt: Date) {
             displayName = snapshot.displayName
             plan = snapshot.plan
             fetchedAt = OpenUsageISO8601.string(from: snapshot.refreshedAt)
+            self.usageRoseAt = usageRoseAt.map(OpenUsageISO8601.string(from:))
             let expiry = snapshot.refreshedAt.addingTimeInterval(RefreshSetting.interval)
             expiresAt = OpenUsageISO8601.string(from: expiry)
             stale = generatedAt >= expiry
