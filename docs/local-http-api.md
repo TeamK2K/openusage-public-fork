@@ -20,8 +20,8 @@ refreshes itself every 30 seconds; it follows the Mac's light or dark appearance
   what is left before its weekly (or monthly) reset and how long until it, its plan and any reset passes
   or extra credit, a status badge (Use this one, Ready, <limit> low, Runs out in …, Back in …; green,
   amber or red), and its limits as ten-cell battery bars (weekly or monthly first, then session and
-  Fable), each with its reset time. A bar changes colour as it runs low (under 75% left, then under
-  40%).
+  Fable), each with its reset time. A bar is green with 25% or more left, amber under 25%, and red
+  at 0 or when it is on pace to run out before it resets; light and dark use the same colours.
 - **Order:** soonest reset first, because room left at a reset is lost; accounts under 10% come next
   and accounts at a limit last, soonest back first. The first card is the account to use and is
   outlined. An **In Use** badge marks every account whose usage was seen going up in the last 15 minutes

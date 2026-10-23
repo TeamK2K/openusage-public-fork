@@ -26,7 +26,9 @@ export type LimitsError = { providerId: string; message?: string; displayName?: 
 
 export type Limits = { providers?: Record<string, Provider>; errors?: LimitsError[] }
 
-export type Bar = { name: string; res: Resource; value: number | null }
+/** One limit: its percent left (null when the provider gives none) and whether it is on pace to run
+ *  out before it resets. */
+export type Bar = { name: string; res: Resource; value: number | null; runsOut: boolean }
 
 export type Tone = 'ok' | 'warn' | 'out'
 
@@ -129,7 +131,7 @@ export function toRow(id: string, p: Provider, now: number): Row | null {
       .map(([key, res]) => ({ name: title(key), res }))
   }
   if (!named.length) return null
-  const bars: Bar[] = named.map(b => ({ ...b, value: pct(b.res) }))
+  const bars: Bar[] = named.map(b => ({ ...b, value: pct(b.res), runsOut: runOut(b.name, b.res, now) != null }))
   const score = Math.min(...bars.map(b => b.value ?? 100))
   let note = 'Ready'
   let noteTitle = ''
@@ -192,6 +194,10 @@ export function accountName(x: Row): string {
   const n = label(x.id, x.p)
   return x.isClaude ? n.detail : n.family
 }
+
+/** How one limit's battery reads: out at 0 or on pace to run out before it resets, warn under 25%
+ *  left, else ok — lots of room stays green. */
+export const barTone = (b: Bar): Tone => (b.value === 0 || b.runsOut ? 'out' : b.value != null && b.value < 25 ? 'warn' : 'ok')
 
 /** How a card reads: out (a limit at 0), warn (on pace to run out, or under 25% left), else ready. */
 export const tone = (x: Row): Tone => (x.out ? 'out' : x.warn || x.score < 25 ? 'warn' : 'ok')

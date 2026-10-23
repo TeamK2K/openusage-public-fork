@@ -56,6 +56,11 @@ describe('the accounts page', () => {
     expect(screen.getByText('Weekly')).toBeTruthy()
     expect(screen.getByText('Session')).toBeTruthy()
     expect(screen.getByText(/refreshes every 30 seconds/)).toBeTruthy()
+    // Fitting scales the card grid only: the top bar (Add Account) sits outside it and the page's
+    // base size is never touched, so the bar looks the same whatever the cards need.
+    const add = screen.getByRole('button', { name: /Add Account/ })
+    expect(add.closest('#cards')).toBeNull()
+    expect(document.documentElement.style.fontSize).toBe('')
   })
 
   it('signs a signed-out card back in', async () => {

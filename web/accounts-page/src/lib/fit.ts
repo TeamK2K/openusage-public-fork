@@ -1,10 +1,15 @@
 // Fit every card on one screen at the biggest text that leaves nothing cut off: for each column count,
-// search the root font size (every size on the page is in rem, so it scales the whole page) at which
-// no card clips or overflows, and keep the column count that allows the biggest one. Measured, not
-// estimated, so it holds for any card mix. Phones get one card per row and the page scrolls.
+// search the card text size at which no card clips or overflows, and keep the column count that
+// allows the biggest one. Measured, not estimated, so it holds for any card mix. Phones get one card
+// per row and the page scrolls.
+//
+// The size is set as `--fit` on the card grid (a scale of the 16px base): `src/index.css` scales the
+// grid's spacing and text tokens by it, so only the cards change size — the top bar, verdict, footer
+// and dialog keep one size whatever the window, card count or theme.
 
 const MIN_FS = 8
 const MAX_FS = 26
+const BASE_FS = 16
 export const PHONE_QUERY = '(max-width: 639px)'
 
 function overflowing(grid: HTMLElement): boolean {
@@ -17,11 +22,10 @@ function overflowing(grid: HTMLElement): boolean {
 }
 
 export function fit(grid: HTMLElement | null): void {
-  const root = document.documentElement
   if (!grid) return
   const n = grid.children.length
   if (!n || matchMedia(PHONE_QUERY).matches) {
-    root.style.removeProperty('font-size')
+    grid.style.removeProperty('--fit')
     grid.style.removeProperty('grid-template-columns')
     grid.style.removeProperty('grid-template-rows')
     return
@@ -29,7 +33,7 @@ export function fit(grid: HTMLElement | null): void {
   const set = (cols: number, fs: number) => {
     grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`
     grid.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, minmax(0, 1fr))`
-    root.style.fontSize = `${fs}px`
+    grid.style.setProperty('--fit', String(fs / BASE_FS))
   }
   let best: { cols: number; fs: number } | null = null
   for (let cols = 1; cols <= n && !(best && best.fs >= MAX_FS); cols++) {

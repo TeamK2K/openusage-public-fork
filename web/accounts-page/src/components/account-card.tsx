@@ -4,11 +4,13 @@ import BadgeBlockedDemo from '@/components/shadcn-studio/badge/badge-17'
 import BadgeCompletedDemo from '@/components/shadcn-studio/badge/badge-18'
 import EmptyState from '@/components/shadcn-studio/blocks/empty-state-04/empty-state-04'
 import ServiceHealthCard from '@/components/shadcn-studio/blocks/statistics-metrics-health-card'
-import { accountName, inUse, resetText, status, tone, type Row } from '@/lib/accounts'
+import { accountName, barTone, inUse, resetText, status, tone, type Row } from '@/lib/accounts'
 import { left, when } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
 const STATUS_BADGE = { ok: BadgeCompletedDemo, warn: BadgeInProgressDemo, out: BadgeBlockedDemo }
+// The block's own cell colours (the Studio chart palette), picked by the page's meaning of a limit.
+const CELL_COLOR = { ok: 'var(--chart-2)', warn: 'var(--chart-4)', out: 'var(--chart-1)' }
 
 type Props = {
   row: Row
@@ -44,7 +46,7 @@ export function AccountCard({ row, isBest, now, signIn }: Props) {
   const headline = `${row.leftover}% left` + (!row.out && row.resetMs ? ` · resets ${when(row.resetMs, now)}` : '')
   const metrics = row.bars
     .filter((b): b is typeof b & { value: number } => b.value != null)
-    .map(b => ({ label: b.name, percentage: b.value, detail: resetText(b.res, b.value, now) }))
+    .map(b => ({ label: b.name, percentage: b.value, detail: resetText(b.res, b.value, now), color: CELL_COLOR[barTone(b)] }))
   const using = inUse(row.p, now)
   return (
     <ServiceHealthCard

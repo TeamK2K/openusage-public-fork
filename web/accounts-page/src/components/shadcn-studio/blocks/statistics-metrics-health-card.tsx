@@ -12,6 +12,8 @@ export type HealthMetric = {
   label: string
   detail: string
   percentage: number
+  /** The filled cells' colour; defaults to the block's own bands of `percentage`. */
+  color?: string
 }
 
 export type ServiceHealthCardProps = {
@@ -45,9 +47,9 @@ const chartConfig = { v: { label: 'Value' } } satisfies ChartConfig
 
 // Bar Chart
 
-const MetricRow = ({ label, detail, percentage }: HealthMetric) => {
+const MetricRow = ({ label, detail, percentage, color: tone }: HealthMetric) => {
   const data = makeBarData(percentage)
-  const color = barColor(percentage)
+  const color = tone ?? barColor(percentage)
 
   return (
     <div className='flex flex-col gap-2'>

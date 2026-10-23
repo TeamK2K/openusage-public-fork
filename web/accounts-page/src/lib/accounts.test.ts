@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildPage, extras, resetText, status, toRow, type Provider, type Resource } from '@/lib/accounts'
+import { barTone, buildPage, extras, resetText, status, toRow, type Provider, type Resource } from '@/lib/accounts'
 
 const now = Date.parse('2026-10-23T12:00:00.000Z')
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString()
@@ -49,6 +49,18 @@ describe('cards', () => {
     const row = toRow('claude@a', claude('a@x.com', { weekly: pctRes(50, 6 * day) }), now)!
     expect(row.warn).toBe(true)
     expect(status(row, true)).toMatch(/^Runs out in /)
+  })
+
+  it('colour each battery by room left: green from 25%, amber under, red at 0 or running out', () => {
+    const row = toRow('claude@a', claude('a@x.com', {
+      weekly: pctRes(73, 6.9 * day), session: pctRes(37, 4.9 * hour, 18000), fable: pctRes(20, 6.9 * day)
+    }), now)!
+    expect(row.bars.map(barTone)).toEqual(['ok', 'ok', 'warn'])
+    expect(barTone({ ...row.bars[0]!, value: 0 })).toBe('out')
+    // 6 of 7 days left and already 50% used: on pace to run out before the reset.
+    const pace = toRow('claude@b', claude('b@x.com', { weekly: pctRes(50, 6 * day) }), now)!
+    expect(pace.bars[0]!.runsOut).toBe(true)
+    expect(barTone(pace.bars[0]!)).toBe('out')
   })
 
   it('list reset passes and extra credit, hidden at zero', () => {
