@@ -41,10 +41,15 @@ protocol ProviderRuntime: AnyObject {
     /// when the entry's account stamp matched the card's known identity. Providers whose in-memory
     /// fallback state doesn't survive a relaunch can hold it for their first degraded refresh.
     func adoptLaunchSnapshot(_ snapshot: ProviderSnapshot)
+
+    /// Non-nil for a remembered account that no login holds this launch. Its refresh always fails
+    /// with this message, so numbers cached from when it last had a login are never shown for it.
+    var signedOutMessage: String? { get }
 }
 
 extension ProviderRuntime {
     func adoptLaunchSnapshot(_ snapshot: ProviderSnapshot) {}
+    var signedOutMessage: String? { nil }
 }
 
 /// Run a blocking, `Sendable` credential load off the MainActor.

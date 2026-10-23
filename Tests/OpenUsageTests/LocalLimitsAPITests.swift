@@ -126,6 +126,35 @@ final class LocalLimitsAPITests: XCTestCase {
         XCTAssertEqual(errors.first?["message"] as? String, "Not logged in")
     }
 
+    func testErrorNamesTheCardSoACardWithNoDataCanStillBeListed() throws {
+        var state = LocalUsageAPI.State(
+            enabledOrderedIDs: ["claude"], knownIDs: ["claude"], snapshots: [:], generatedAt: generatedAt
+        )
+        state.errors["claude"] = "Signed Out. Last signed in at ~/.claude."
+        state.displayNames["claude"] = "Claude: dune@test"
+
+        let root = try json(LocalUsageAPI.respond(method: "GET", path: "/v1/limits", state: state).body)
+        let errors = try XCTUnwrap(root["errors"] as? [[String: Any]])
+
+        XCTAssertTrue((root["providers"] as? [String: Any])?.isEmpty == true)
+        XCTAssertEqual(errors.first?["displayName"] as? String, "Claude: dune@test")
+        XCTAssertEqual(errors.first?["message"] as? String, "Signed Out. Last signed in at ~/.claude.")
+    }
+
+    func testAccountsPageShowsErrorOnlyCardsAndOneResetFormat() throws {
+        let page = String(decoding: SeatsPage.html, as: UTF8.self)
+
+        // Cards for accounts that have an error and no data (signed out), dimmed with their message.
+        XCTAssertTrue(page.contains("downRow"))
+        XCTAssertTrue(page.contains(".card.stale, .card.down"))
+        // One reset format: every clock time goes through `when`; the old two-style helper is gone.
+        XCTAssertTrue(page.contains("function when(ms)"))
+        XCTAssertFalse(page.contains("function stamp("))
+        // The limits follow the headline (no push to the bottom) and a status never wraps.
+        XCTAssertFalse(page.contains(".bars { margin-top:auto"))
+        XCTAssertTrue(page.contains("white-space:nowrap; }\n.status span"))
+    }
+
     func testFlexibleConsumptionExportsUncappedValueWithoutInventingLimit() throws {
         let provider = Provider(id: "claude", displayName: "Claude", icon: .providerMark("claude"))
         let extra = WidgetDescriptor.boundedDollars(

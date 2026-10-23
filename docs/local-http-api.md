@@ -13,10 +13,13 @@ The server starts automatically with the app. If the port is already in use, the
 A compact accounts page for people, not scripts: one row per account with its session and weekly
 (or monthly) room, accounts that are out of room flagged in red with when they come back, and the Claude
 account with the most room named on top. It reads `/v1/limits` from the same address and refreshes
-itself every 30 seconds. Accounts whose last refresh failed are listed under the table, and the footer
+itself every 30 seconds. Accounts whose last refresh failed are listed under the table; an account with
+no data at all (a Claude account no login holds, shown as **Signed Out**) is a dimmed card with its
+message instead of bars, and counts as not ready. Every reset or return time uses one format: "in 2h 47m"
+inside a day, otherwise "Thu 29 Oct, 2 PM". Status lines stay on one line. The footer
 gives the age of the oldest numbers shown. Each row also has a Fable bar, an amber "runs out" note when
 usage is on pace to hit a limit before it resets, and a small line for reset passes and extra credit.
-The page opens with a one-line answer ("Use <account> · N% left, resets in X") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll). Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and when that reset comes, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out …, Back in …) and its limits as ten-cell battery bars, the weekly (or monthly) one first, each with its reset time. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. An **In use** badge marks every account whose usage was seen going up in the last 15 minutes (the provider's `usageRoseAt`), so you can see when a session runs on a different account than the outlined one. `GET /seats` serves the same page. Settings → **Click Opens
+The page opens with a one-line answer ("Use <account> · N% left, resets in X" or "resets Thu 29 Oct, 2 PM") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll). Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and when that reset comes, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out …, Back in …) and its limits as ten-cell battery bars, the weekly (or monthly) one first, each with its reset time. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. An **In use** badge marks every account whose usage was seen going up in the last 15 minutes (the provider's `usageRoseAt`), so you can see when a session runs on a different account than the outlined one. `GET /seats` serves the same page. Settings → **Click Opens
 Web Page** makes the menu bar icon open it.
 
 ### `GET /v1/limits`
@@ -105,7 +108,8 @@ Methods other than `GET`/`OPTIONS` return **405**; unknown routes return **404**
 the provider supplies that meaning. A provider or resource with no current value is omitted rather than
 invented as zero. `expiresAt` is always `fetchedAt` plus the same five-minute freshness interval used by
 the app and CLI; `stale` says whether that instant has passed. `usageRoseAt` (HTTP API only) is the latest refresh at which one of the provider's consumption totals went up compared with its previous refresh, counted only between refreshes at most 15 minutes apart so usage made while the app was closed never shows; it is omitted until the app has seen a rise since launch. Refresh failures appear in `errors` as
-`{"providerId":"…","message":"…"}` while a last-good provider snapshot remains available.
+`{"providerId":"…","message":"…","displayName":"…"}` (`displayName` is the card's name, so a card with no
+data can still be listed) while a last-good provider snapshot remains available.
 For bounded progress resources, `unit` follows the provider's live metric format. For example, Cursor
 `totalUsage` is `percent` on percentage-based plans, `requests` on request-based Enterprise plans, and
 `usd` when Cursor reports a dollar pool. Copilot `premiumCredits` is `percent` on paid plans and a

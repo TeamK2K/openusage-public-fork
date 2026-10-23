@@ -208,6 +208,7 @@ final class AppContainer {
         self.telemetry = telemetry
         self.transparency = PopoverTransparencyStore()
         self.privacy = MenuBarPrivacyStore()
+        let displayNames = Dictionary(registry.providers.map { ($0.id, $0.displayName) }) { first, _ in first }
         self.localAPI = LocalUsageServer(state: { [layout, enablement, dataStore] in
             LocalUsageAPI.State(
                 enabledOrderedIDs: layout.orderedProviderIDs().filter { enablement.isEnabled($0) },
@@ -215,6 +216,7 @@ final class AppContainer {
                 snapshots: dataStore.snapshots,
                 limitDescriptors: registry.limitDescriptorsByProvider,
                 errors: dataStore.providerErrors,
+                displayNames: displayNames,
                 usageRoseAt: dataStore.usageRoseAt
             )
         })

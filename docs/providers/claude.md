@@ -77,10 +77,20 @@ made while OpenUsage was refreshing.
 
 OpenUsage also finds sibling Claude Code config folders named `~/.claude-<name>` (for example one
 per seat, launched with `CLAUDE_CONFIG_DIR=$HOME/.claude-<name>`). A folder with a signed-in account
-gets its own card, named by its email; one that repeats the default login shares the default card.
-Each card reads only its own folder's login and Keychain entry, never the default login or an
-environment token. `~/.claude-swap-backup` is Claude Swap's, not a config folder. Restart OpenUsage
-after adding or removing a folder.
+gets its own card, named by its email. A folder is fully isolated: its card reads only that folder's
+login and Keychain entry, never the default login, Claude Desktop, or an environment token, even when
+the default login or Desktop holds the same account (the folder takes over that account's card).
+If the folder's login is expired or gone, the card shows the error; it does not borrow another
+login. An account with no folder keeps reading the default login. `~/.claude-swap-backup` is
+Claude Swap's, not a config folder. Restart OpenUsage after adding or removing a folder.
+
+## Signed-out accounts
+
+OpenUsage remembers every Claude account it has seen. If one has no login on this Mac at launch (for
+example the default login was later signed in to a different account), it stays on the accounts
+page and in the app as a **Signed Out** card naming where it was last signed in, instead of
+disappearing. It reads no credentials. Sign the account in again (a `~/.claude-<name>` folder is
+the safest place) and restart OpenUsage to bring it back. Codex accounts are not covered yet.
 
 ## Claude Swap accounts
 

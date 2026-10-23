@@ -19,7 +19,9 @@ enum LocalLimitsAPI {
             )
         }
         let errors = providerIDs.compactMap { providerID in
-            state.errors[providerID].map { WireError(providerID: providerID, message: $0) }
+            state.errors[providerID].map {
+                WireError(providerID: providerID, message: $0, displayName: state.displayNames[providerID])
+            }
         }
         return encode(WireEnvelope(
             schema: schema,
@@ -80,10 +82,13 @@ enum LocalLimitsAPI {
     private struct WireError: Encodable {
         let providerID: String
         let message: String
+        /// The card's name, present so a card with no data (signed out) can still be listed.
+        let displayName: String?
 
         enum CodingKeys: String, CodingKey {
             case providerID = "providerId"
             case message
+            case displayName
         }
     }
 

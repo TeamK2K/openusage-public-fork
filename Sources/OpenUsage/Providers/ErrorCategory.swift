@@ -54,7 +54,7 @@ protocol CategorizedError: Error {
 extension ClaudeAuthError: CategorizedError {
     var errorCategory: ErrorCategory {
         switch self {
-        case .notLoggedIn: .notLoggedIn
+        case .notLoggedIn, .signedOut: .notLoggedIn
         case .sessionExpired, .tokenExpired, .desktopTokenExpired, .swapTokenExpired: .authExpired
         case .invalidOAuthURL, .desktopCredentialsUnavailable: .authInvalid
         case .desktopPermissionRequired: .credentialAccess

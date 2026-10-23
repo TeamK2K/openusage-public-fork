@@ -10,8 +10,12 @@ struct ClaudeAccountCard: Equatable, Sendable {
     var swapAccount: ClaudeSwapAccount? = nil
     var additionalLogDirectories: [String] = []
     var organizationName: String? = nil
-    /// A sibling Claude Code config folder (`~/.claude-<name>`) this card reads its login from.
+    /// A sibling Claude Code config folder (`~/.claude-<name>`) this card reads its login from, and
+    /// ONLY from: it never falls back to the default login or the Claude Desktop token.
     var configDirectory: String? = nil
+    /// Set for a remembered account no login holds this launch: where it was last signed in (a folder
+    /// path or "Claude Desktop"). Such a card has no credentials and shows a "Signed Out" error.
+    var signedOutLocation: String? = nil
 }
 
 /// The launch-time account pass: read which account is signed in at each family's default home,
@@ -186,8 +190,13 @@ struct ProviderAccountAssembly {
             }
         }
 
+        // A remembered account other than the default one still needs its (signed-out) card, so the
+        // single-default shortcut applies only when the registry knows no other live Claude account.
+        let remembersOtherAccounts = identityKeys["claude"].map {
+            remembersOtherUsers(rememberedClaudeIdentityKeys(accountsStore.records), than: $0)
+        } ?? false
         if let claudeIdentity = identityKeys["claude"], !claudeIdentity.contains("|"),
-           swapAccounts.isEmpty, siblingHomes.isEmpty {
+           swapAccounts.isEmpty, siblingHomes.isEmpty, !remembersOtherAccounts {
             accountsStore.reconcile(with: observations)
             return ProviderAccountAssembly(identityKeysByCard: identityKeys, codex: codex)
         }
@@ -286,14 +295,14 @@ struct ProviderAccountAssembly {
         for login in siblingHomes {
             if let index = cards.firstIndex(where: { $0.identityKey == login.identityKey }) {
                 let existing = cards[index]
-                guard existing.identityKey != defaultClaudeIdentity,
-                      existing.swapAccount == nil, existing.configDirectory == nil
-                else {
+                guard existing.swapAccount == nil, existing.configDirectory == nil else {
                     AppLog.debug(.config, "accounts: Claude home \(login.directory) already has a card; not adding another")
                     continue
                 }
-                // A Desktop-only card for the same account reads the folder's own login first; its
-                // Desktop token stays a fallback for that account (see ClaudeAuthStore.loadCredentialSet).
+                // The same account is also the default home's login or a Desktop organization: the
+                // seat folder takes the card over (same record id) and is its ONLY credential source,
+                // so a later re-login of the default home or Desktop can never change this card
+                // (see ClaudeAuthStore.loadCredentialSet).
                 cards[index] = ClaudeAccountCard(
                     id: existing.id, identityKey: existing.identityKey, organizationID: existing.organizationID,
                     displayName: login.displayName, usesDesktopCredentials: false,
@@ -318,7 +327,46 @@ struct ProviderAccountAssembly {
             cards[index].additionalLogDirectories = swapAccounts.map(\.sessionDirectory)
                 + siblingHomes.map(\.directory)
         }
+        cards += signedOutCards(records: records, cards: cards, allowsUnattributedPiUsage: allowsUnattributedPiUsage)
         return ProviderAccountAssembly(identityKeysByCard: identityKeys, claudeCards: cards, codex: codex)
+    }
+
+    /// A card for every remembered Claude account that got no card this launch, so an account never
+    /// vanishes from the page just because its login went away (the default home was re-logged to
+    /// another account, a folder was signed out). It carries no credentials and no identity key: its
+    /// refresh fails with "Signed Out" and the last place the account was signed in.
+    private static func signedOutCards(
+        records: [ProviderAccountRecord],
+        cards: [ClaudeAccountCard],
+        allowsUnattributedPiUsage: Bool
+    ) -> [ClaudeAccountCard] {
+        records.compactMap { record in
+            guard record.family == "claude", !record.removedTombstone,
+                  !cards.contains(where: { $0.id == record.id }) else { return nil }
+            // An older record that named only the account (no organization) is the same account as a
+            // card that now names its organization; it isn't a signed-out account.
+            if !record.identityKey.contains("|"),
+               cards.contains(where: { $0.identityKey.hasPrefix(record.identityKey + "|") }) { return nil }
+            let location = signedOutLocation(of: record)
+            AppLog.warn(.config, "accounts: Claude card \(record.id) has no login this launch; showing it as signed out (last signed in at \(location))")
+            return ClaudeAccountCard(
+                id: record.id, identityKey: record.identityKey,
+                organizationID: record.identityKey.split(separator: "|").dropFirst().first.map(String.init),
+                displayName: "Claude: \(record.label ?? "Signed Out")", usesDesktopCredentials: false,
+                allowsUnattributedPiUsage: allowsUnattributedPiUsage, signedOutLocation: location
+            )
+        }
+    }
+
+    /// Where a remembered account was last signed in: its last known source folder (home shortened
+    /// to `~`), or "Claude Desktop" for the Desktop app's data folder.
+    private static func signedOutLocation(of record: ProviderAccountRecord) -> String {
+        guard let anchor = record.sources.compactMap(\.anchor).last(where: { !$0.isEmpty }) else {
+            return "Claude Code"
+        }
+        if anchor.hasSuffix("/Library/Application Support/Claude") { return "Claude Desktop" }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return anchor.hasPrefix(home + "/") ? "~" + anchor.dropFirst(home.count) : anchor
     }
 
     private static func organizationLabel(_ value: String?) -> String? {

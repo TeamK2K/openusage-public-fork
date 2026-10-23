@@ -213,14 +213,40 @@ final class ClaudeHomeDiscoveryTests: XCTestCase {
         )
     }
 
-    func testSiblingRepeatingTheDefaultAccountKeepsTheSingleDefaultCard() async throws {
+    func testSiblingRepeatingTheDefaultAccountTakesOverTheDefaultCard() async throws {
         var contents = ["/Users/dev/.claude.json": state(userA, email: "default@test")]
         contents.merge(signedIn(".claude-same", uuid: userA, email: "default@test")) { $1 }
 
         let assembly = try await assemble(files: FakeFiles(contents), folders: [".claude-same"])
 
-        XCTAssertTrue(assembly.claudeCards.isEmpty)
+        // One card for the account: it keeps the default card's record id but reads ONLY the seat
+        // folder, so re-logging the default home to another account can never change it.
+        XCTAssertEqual(assembly.claudeCards.count, 1)
+        let card = try XCTUnwrap(assembly.claudeCards.first)
+        XCTAssertEqual(card.id, "claude")
+        XCTAssertEqual(card.identityKey, userA)
+        XCTAssertEqual(card.configDirectory, "/Users/dev/.claude-same")
+        XCTAssertFalse(card.usesDesktopCredentials)
+        XCTAssertNil(card.signedOutLocation)
         XCTAssertEqual(assembly.identityKeysByCard["claude"], userA)
+
+        let store = try XCTUnwrap(
+            ProviderCatalog.make(claudeCards: assembly.claudeCards, claudeIdentityKeys: assembly.identityKeysByCard)
+                .compactMap { $0 as? ClaudeProvider }.first?.authStore
+        )
+        XCTAssertEqual(store.configDirectory, "/Users/dev/.claude-same")
+        XCTAssertTrue(store.isolatedToConfigDirectory)
+    }
+
+    func testDefaultHomeWithoutASeatKeepsItsOwnCardAlongsideSeatCards() async throws {
+        var contents = ["/Users/dev/.claude.json": state(userA, email: "default@test")]
+        contents.merge(signedIn(".claude-b", uuid: userB, email: "b@test")) { $1 }
+
+        let assembly = try await assemble(files: FakeFiles(contents), folders: [".claude-b"])
+
+        XCTAssertEqual(assembly.claudeCards.count, 2)
+        XCTAssertNil(assembly.claudeCards.first { $0.identityKey == userA }?.configDirectory)
+        XCTAssertEqual(assembly.claudeCards.first { $0.identityKey == userB }?.configDirectory, "/Users/dev/.claude-b")
     }
 
     func testSiblingOnlyMachineStillBuildsACard() async throws {
@@ -288,8 +314,8 @@ extension ClaudeDesktopAuthStoreTests {
         XCTAssertFalse(store.desktopOnly)
         XCTAssertEqual(store.configDirectory, seat)
         XCTAssertEqual(store.desktopOrganization, organization)
-        // Same configuration over fixture files: the folder login is read first, and the Desktop
-        // token for the same account stays behind it as a fallback.
+        // Same configuration over fixture files: the folder login is the ONLY source. The Desktop
+        // token for the same account is never read, even when the folder's login goes missing.
         let configured = ClaudeAuthStore(
             environment: FakeEnvironment(), files: fixture.files, keychain: FakeKeychain(),
             desktop: fixture.store, desktopOrganization: store.desktopOrganization,
@@ -298,7 +324,15 @@ extension ClaudeDesktopAuthStoreTests {
             configDirectory: store.configDirectory
         )
         XCTAssertEqual(configured.loadCredentialCandidates().first?.oauth.accessToken, "seat-token")
+        XCTAssertEqual(configured.loadCredentialCandidates().map(\.oauth.accessToken), ["seat-token"])
         fixture.files.files[seat + "/.credentials.json"] = nil
-        XCTAssertEqual(configured.loadCredentialCandidates().map(\.oauth.accessToken), ["personal-token"])
+        for load in [
+            configured.loadCredentialSet(),
+            configured.loadCredentialSet(allowDesktopInteraction: true),
+            configured.loadCredentialSet(forceDesktopFallback: true),
+        ] {
+            XCTAssertTrue(load.candidates.isEmpty)
+            XCTAssertEqual(load.desktopStatus, .notChecked)
+        }
     }
 }

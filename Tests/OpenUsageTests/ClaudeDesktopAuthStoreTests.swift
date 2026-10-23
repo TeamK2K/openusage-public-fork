@@ -196,8 +196,12 @@ final class ClaudeDesktopAuthStoreTests: XCTestCase {
             observer: observer, accountsStore: ProviderAccountsStore(defaults: defaults), families: ["claude"],
             desktop: ClaudeDesktopAuthStore(files: FakeFiles(), homeDirectory: { fixtureHome })
         )
-        XCTAssertEqual(withoutDesktop.claudeCards.count, 1)
+        // Desktop no longer shows the Personal organization: its remembered card stays as Signed Out
+        // (no credentials) next to the one live work card.
+        XCTAssertEqual(withoutDesktop.claudeCards.map(\.id), [workID, "claude"])
+        XCTAssertEqual(withoutDesktop.claudeCards.map { $0.signedOutLocation != nil }, [false, true])
         XCTAssertFalse(try XCTUnwrap(withoutDesktop.claudeCards.first).allowsUnattributedPiUsage)
+        XCTAssertNil(withoutDesktop.identityKeysByCard["claude"])
 
         fixture.files.files["\(home.path)/.claude.json"] =
             #"{"oauthAccount":{"accountUuid":"\#(accountUUID)"}}"#

@@ -135,7 +135,8 @@ public struct UsageReader {
             knownIDs: knownIDs,
             snapshots: snapshots,
             limitDescriptors: registry.limitDescriptorsByProvider,
-            errors: errors
+            errors: errors,
+            displayNames: Dictionary(registry.providers.map { ($0.id, $0.displayName) }) { first, _ in first }
         )
         let path = requestedToken.map { "/v1/limits/\($0)" } ?? "/v1/limits"
         let response = LocalUsageAPI.respond(method: "GET", path: path, state: state)

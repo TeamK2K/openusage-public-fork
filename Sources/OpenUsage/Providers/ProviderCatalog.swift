@@ -16,7 +16,17 @@ enum ProviderCatalog {
         if claudeCards.isEmpty {
             providers = [ClaudeProvider()]
         } else {
+            // Signed-out cards are placeholders: they don't count as another live account.
+            let liveCardCount = claudeCards.count { $0.signedOutLocation == nil }
             providers = claudeCards.map { card in
+                if let location = card.signedOutLocation {
+                    return ClaudeProvider(
+                        provider: ClaudeProvider.makeProvider(id: card.id, displayName: card.displayName),
+                        authStore: ClaudeAuthStore(configDirectory: ClaudeAuthStore.signedOutConfigDirectory),
+                        allowsUnattributedPiUsage: false,
+                        signedOut: .signedOut(location: location)
+                    )
+                }
                 let identity = claudeIdentityKeys[card.id] ?? card.identityKey
                 let user = identity.split(separator: "|").first.map(String.init)
                 let scanner = ClaudeLogUsageScanner(
@@ -34,7 +44,7 @@ enum ProviderCatalog {
                         expectedIdentityKey: identity,
                         desktopOnly: card.usesDesktopCredentials,
                         swapAccount: card.swapAccount,
-                        preferOrganizationScopedDesktop: claudeCards.count > 1
+                        preferOrganizationScopedDesktop: liveCardCount > 1
                             && card.organizationID != nil && !card.usesDesktopCredentials
                             && card.configDirectory == nil,
                         configDirectory: card.configDirectory

@@ -11,9 +11,14 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
     case tokenExpired
     case credentialsChanged
     case invalidOAuthURL(String)
+    /// A remembered account that no login this launch holds. `location` names where it was last
+    /// signed in (a folder path or "Claude Desktop").
+    case signedOut(location: String)
 
     var errorDescription: String? {
         switch self {
+        case .signedOut(let location):
+            return "Signed Out. Last signed in at \(location)."
         case .notLoggedIn:
             return "Not logged in. Run `claude` to authenticate."
         case .desktopPermissionRequired:
@@ -46,7 +51,7 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
         case .sessionExpired, .tokenExpired, .desktopTokenExpired, .swapTokenExpired:
             return true
         case .notLoggedIn, .desktopPermissionRequired, .desktopCredentialsUnavailable,
-             .credentialsChanged, .invalidOAuthURL:
+             .credentialsChanged, .invalidOAuthURL, .signedOut:
             return false
         }
     }
@@ -79,7 +84,7 @@ struct ClaudeAuthStore: Sendable {
     let preferOrganizationScopedDesktop: Bool
     /// A sibling Claude Code config folder (`~/.claude-<name>`) this store is pinned to, as the
     /// absolute path Claude Code itself hashes for its Keychain service. Never falls back to the
-    /// default login's Keychain entry or `CLAUDE_CODE_OAUTH_TOKEN`.
+    /// default login's Keychain entry, `CLAUDE_CODE_OAUTH_TOKEN`, or the Claude Desktop token.
     let configDirectory: String?
 
     init(
@@ -107,6 +112,14 @@ struct ClaudeAuthStore: Sendable {
         self.preferOrganizationScopedDesktop = preferOrganizationScopedDesktop
         self.now = now
     }
+
+    /// A store pinned to a seat folder reads only that folder's login: never the default home's
+    /// credentials, the environment token, or the Claude Desktop token.
+    var isolatedToConfigDirectory: Bool { configDirectory != nil }
+
+    /// A folder that can never hold a login, for a card with no login at all (see
+    /// `ClaudeAccountCard.signedOutLocation`): pinning to it keeps the store off every real account.
+    static let signedOutConfigDirectory = "/dev/null/openusage-signed-out"
 
     /// All credential sources currently on disk/keychain, in fixed keychain-before-file order, for the
     /// refresh loop to try in order. The provider probes each and — on an auth-expiry error
@@ -146,7 +159,10 @@ struct ClaudeAuthStore: Sendable {
         let hasUsableCLILogin = stored.contains {
             $0.hasUsableAccessToken && liveUsageAvailability($0) == .available
         }
-        if swapAccount != nil || forceDesktopFallback || !hasUsableCLILogin || preferOrganizationScopedDesktop {
+        // A seat folder (`configDirectory`) is isolated: its login is the only source, so the Claude
+        // Desktop token is never read for it, whatever happens to the folder's own login.
+        if !isolatedToConfigDirectory,
+           swapAccount != nil || forceDesktopFallback || !hasUsableCLILogin || preferOrganizationScopedDesktop {
             let expectedUser = expectedIdentityKey?.split(separator: "|").first.map(String.init)
             let result = desktop.load(
                 allowInteraction: allowDesktopInteraction,

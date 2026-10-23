@@ -19,6 +19,9 @@ enum LocalUsageAPI {
         /// Only descriptors explicitly opted into the stable limits contract.
         var limitDescriptors: [String: [WidgetDescriptor]] = [:]
         var errors: [String: String] = [:]
+        /// Every card's display name, so an error for a card with no snapshot yet (a signed-out
+        /// account) can still be named on the accounts page.
+        var displayNames: [String: String] = [:]
         /// When each account's usage last went up between two refreshes (`/v1/limits` `usageRoseAt`).
         var usageRoseAt: [String: Date] = [:]
         var generatedAt = Date()

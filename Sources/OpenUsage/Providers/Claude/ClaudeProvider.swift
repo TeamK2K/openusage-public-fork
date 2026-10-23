@@ -20,6 +20,9 @@ final class ClaudeProvider: ProviderRuntime {
     let usageClient: ClaudeUsageClient
     let logUsageScanner: ClaudeLogUsageScanner
     let allowsUnattributedPiUsage: Bool
+    /// Set for a remembered account no login holds this launch: every refresh fails with this error
+    /// and no credential is read at all (see `ClaudeAccountCard.signedOutLocation`).
+    let signedOut: ClaudeAuthError?
     let now: @Sendable () -> Date
     let pricing: @Sendable () async -> ModelPricing
 
@@ -59,6 +62,7 @@ final class ClaudeProvider: ProviderRuntime {
         usageClient: ClaudeUsageClient = ClaudeUsageClient(),
         logUsageScanner: ClaudeLogUsageScanner = ClaudeLogUsageScanner(),
         allowsUnattributedPiUsage: Bool = true,
+        signedOut: ClaudeAuthError? = nil,
         now: @escaping @Sendable () -> Date = Date.init,
         pricing: @escaping @Sendable () async -> ModelPricing = { await ModelPricingStore.shared.current() }
     ) {
@@ -67,6 +71,7 @@ final class ClaudeProvider: ProviderRuntime {
         self.usageClient = usageClient
         self.logUsageScanner = logUsageScanner
         self.allowsUnattributedPiUsage = allowsUnattributedPiUsage
+        self.signedOut = signedOut
         self.now = now
         self.pricing = pricing
     }
@@ -100,7 +105,10 @@ final class ClaudeProvider: ProviderRuntime {
         pendingLaunchSnapshot = snapshot
     }
 
+    var signedOutMessage: String? { signedOut?.localizedDescription }
+
     func hasLocalCredentials() async -> Bool {
+        if signedOut != nil { return false }
         // Never trigger another app's Keychain prompt during first-run detection. Encrypted Desktop
         // material still counts as a local login; the first manual refresh requests access if needed.
         let load = await loadOffMainActor { [authStore] in authStore.loadCredentialSet() }
@@ -109,7 +117,11 @@ final class ClaudeProvider: ProviderRuntime {
     }
 
     func refresh() async -> ProviderSnapshot {
-        await refresh(
+        if let signedOut {
+            // No credential of any account is read for a signed-out card.
+            return ProviderSnapshot.error(provider: provider, error: signedOut)
+        }
+        return await refresh(
             credentialReloadsRemaining: 1,
             forceDesktopFallback: false,
             previousFallbackError: nil
@@ -240,6 +252,7 @@ final class ClaudeProvider: ProviderRuntime {
             }
         }
         if !forceDesktopFallback,
+           !authStore.isolatedToConfigDirectory,
            lastFallbackError != nil,
            credentialLoad.desktopStatus == .notChecked
         {

@@ -6,7 +6,8 @@ struct ProviderAccountDiscoveryReadout: Sendable {
         let swapAccounts: [ClaudeSwapAccount]
         let desktopOrganizations: [ClaudeDesktopOrganization]
         let desktopAnchor: String?
-        /// Sibling `~/.claude-*` folders with their own login, distinct from the default's account.
+        /// Sibling `~/.claude-*` folders with their own login (including one that repeats the default
+        /// home's or a Desktop organization's account; it takes that card over).
         let siblingHomes: [ClaudeHomeLogin]
     }
 
@@ -47,13 +48,15 @@ extension ProviderAccountAssembly {
         let hasEstablishedCodexAccounts = accountsStore.records.contains {
             $0.family == "codex" && $0.identityKey.contains("|")
         }
+        let rememberedClaude = Self.rememberedClaudeIdentityKeys(accountsStore.records)
         async let claude = Task.detached(priority: .userInitiated) {
             Self.readClaude(
                 observer: observer,
                 enabled: families.contains("claude"),
                 desktop: desktop,
                 listDirectories: listDesktopOrganizationDirectories,
-                listHomeDirectories: listClaudeHomeDirectories
+                listHomeDirectories: listClaudeHomeDirectories,
+                rememberedIdentityKeys: rememberedClaude
             )
         }.value
         async let codex = Task.detached(priority: .userInitiated) {
@@ -67,12 +70,26 @@ extension ProviderAccountAssembly {
         return await ProviderAccountDiscoveryReadout(claude: claude, codex: codex)
     }
 
+    /// The identity keys of the Claude accounts the registry still remembers (not removed).
+    nonisolated static func rememberedClaudeIdentityKeys(_ records: [ProviderAccountRecord]) -> [String] {
+        records.filter { $0.family == "claude" && !$0.removedTombstone }.map(\.identityKey)
+    }
+
+    /// Whether any remembered account belongs to a different user than the default login's. Accounts
+    /// of the same user (the same login seen with and without its organization) don't count: they
+    /// keep the single-default shortcut.
+    nonisolated static func remembersOtherUsers(_ identityKeys: [String], than defaultIdentity: String) -> Bool {
+        let user = defaultIdentity.split(separator: "|").first
+        return identityKeys.contains { $0.split(separator: "|").first != user }
+    }
+
     nonisolated static func readClaude(
         observer: DefaultAccountObserver,
         enabled: Bool,
         desktop: ClaudeDesktopAuthStore?,
         listDirectories: @Sendable (URL) -> [String],
-        listHomeDirectories: @escaping @Sendable (String) -> [String] = CodexHomeScanner.listSubdirectories
+        listHomeDirectories: @escaping @Sendable (String) -> [String] = CodexHomeScanner.listSubdirectories,
+        rememberedIdentityKeys: [String] = []
     ) -> ProviderAccountDiscoveryReadout.Claude? {
         guard enabled else { return nil }
         let outcome = observer.observeClaude()
@@ -84,11 +101,19 @@ extension ProviderAccountAssembly {
         } else {
             nil
         }
+        // A seat holding the default home's account is kept: it takes over that card so the card
+        // reads only the seat's login (see `ProviderAccountAssembly.assemble`).
         let siblingHomes = ClaudeHomeScanner(
             environment: observer.environment, files: observer.files, keychain: observer.keychain,
             homeDirectory: observer.homeDirectory, listDirectories: listHomeDirectories
-        ).scan(excludingIdentity: defaultIdentity)
-        guard !(defaultIdentity.map { !$0.contains("|") } == true && swapAccounts.isEmpty && siblingHomes.isEmpty) else {
+        ).scan()
+        // A remembered account of another user may only be findable through Claude Desktop, so the
+        // single-default shortcut must not skip that discovery (or it would read as signed out).
+        let hasOtherUsers = defaultIdentity.map {
+            remembersOtherUsers(rememberedIdentityKeys, than: $0)
+        } ?? false
+        guard !(defaultIdentity.map { !$0.contains("|") } == true && swapAccounts.isEmpty
+                && siblingHomes.isEmpty && !hasOtherUsers) else {
             return ProviderAccountDiscoveryReadout.Claude(
                 outcome: outcome, swapAccounts: swapAccounts, desktopOrganizations: [],
                 desktopAnchor: nil, siblingHomes: siblingHomes

@@ -182,6 +182,9 @@ final class WidgetDataStore {
         // keeps its cache, exactly as before the guard existed. Non-account providers are unaffected.
         let loaded = cache.loadSnapshots(providerIDs: registry.providers.map(\.id))
             .filter { cardID, _ in
+                // A signed-out card has no login to match a cached snapshot against: it shows its
+                // error, never the numbers from when it last had a login.
+                guard providersByID[cardID]?.signedOutMessage == nil else { return false }
                 guard cache.hasStaleAccountStamp(providerID: cardID, currentIdentityKey: providerIdentityKeys[cardID]) else {
                     return true
                 }

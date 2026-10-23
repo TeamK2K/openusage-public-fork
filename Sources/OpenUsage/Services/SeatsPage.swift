@@ -38,7 +38,7 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
 .card { container-type:size; min-width:0; min-height:0; overflow:hidden; background:var(--card);
         border:1px solid var(--line); border-radius:14px; }
 .card.best { border-color:var(--bar); box-shadow: inset 0 0 0 1px var(--bar); }
-.card.stale { opacity:.55; }
+.card.stale, .card.down { opacity:.55; }
 /* Everything inside scales with the card, so a 4-card and a 9-card screen both read cleanly. */
 .in { height:100%; display:flex; flex-direction:column; gap:3.2cqh; padding: 5.5cqmin 6cqmin;
       font-size: clamp(10px, min(5.4cqh, 6.4cqw), 26px); }
@@ -59,9 +59,15 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
 .room.warn, .status.warn { color:var(--warn); } .room.out, .status.out { color:var(--out); }
 .side { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:.3em; text-align:right; padding-bottom:1.1em; }
 .resetin { font-size:1.05em; font-weight:650; text-wrap:balance; }
-.status { font-size:.85em; font-weight:600; color:var(--ok); display:flex; align-items:center; gap:.45em; }
+/* A status is always one line: the dot stays, the text never wraps. */
+.status { font-size:.85em; font-weight:600; color:var(--ok); display:flex; align-items:center; justify-content:flex-end; gap:.45em; max-width:100%; white-space:nowrap; }
+.status span:not(.dot) { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .dot { width:.55em; height:.55em; border-radius:50%; background:currentColor; flex:none; }
-.bars { margin-top:auto; display:flex; flex-direction:column; gap:2.6cqh; }
+/* The limits follow the headline with normal spacing, so a card with one or two bars has no gap. */
+.bars { display:flex; flex-direction:column; gap:2.6cqh; }
+/* A remembered account with no login: its message stands where the bars would be. */
+.downmsg { color:var(--muted); font-size:.9em; overflow-wrap:anywhere; overflow:hidden;
+           display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; }
 .meter { display:grid; grid-template-columns: auto 1fr auto; column-gap:.5em; row-gap:.3em; align-items:baseline; }
 .meter .lbl { font-size:.8em; color:var(--muted); }
 .when { font-size:.72em; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -104,7 +110,6 @@ function left(ms) {
   const m = Math.round(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), r = m % 60;
   return d ? d + "d " + h + "h" : h ? h + "h" + (r ? " " + r + "m" : "") : r + "m";
 }
-function until(iso) { return iso ? left(new Date(iso) - Date.now()) : null; }
 function pct(r) { return r && typeof r.remaining === "number" ? Math.max(0, Math.min(100, Math.round(r.remaining))) : null; }
 function label(id, p) {
   const raw = (p.displayName || id).replace(/'s Organization$/, "");
@@ -112,23 +117,24 @@ function label(id, p) {
   return m ? { family: "Claude", detail: m[1] } : { family: raw, detail: p.plan || "" };
 }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-// Reset time for one bar: "resets in 2h 7m" inside a day, else "resets Thu 9 AM"; "back …" in red
-// when that limit is used up; "not started" when a window has no clock running yet.
+// The one format for any moment on this page (a reset, a run-out, a return): "in 2h 47m" inside a
+// day, otherwise weekday, date and time, minutes only when non-zero: "Thu 29 Oct, 2 PM", "Thu 29 Oct, 2:30 PM".
+function when(ms) {
+  const diff = ms - Date.now();
+  if (diff <= 0) return "now";
+  if (diff < 86400000) return "in " + left(diff);
+  const d = new Date(ms), t = { hour: "numeric" };
+  if (d.getMinutes()) t.minute = "2-digit";
+  return d.toLocaleDateString([], { weekday: "short" }) + " " + d.getDate() + " " +
+    d.toLocaleDateString([], { month: "short" }) + ", " + d.toLocaleTimeString([], t);
+}
+
+// Reset time for one bar: "resets in 2h 7m" or "resets Thu 29 Oct, 9 AM"; "back …" in red when that
+// limit is used up; "not started" when a window has no clock running yet.
 function resetText(res, value) {
   if (!res) return "";
   if (!res.resetsAt) return value != null && value >= 100 ? "not started" : "";
-  const ms = new Date(res.resetsAt) - Date.now();
-  return (value === 0 ? "back " : "resets ") +
-    (ms <= 0 ? "now" : ms < 86400000 ? "in " + left(ms) : stamp(new Date(res.resetsAt).getTime()));
-}
-
-// Short weekday + time, minutes only when non-zero: "Tue 3 PM", "Tue 3:30 PM". More than six days
-// out a weekday is ambiguous, so it becomes a date: "5 Nov".
-function stamp(ms) {
-  const d = new Date(ms), o = { weekday: "short", hour: "numeric" };
-  if (ms - Date.now() > 6 * 86400000) return d.getDate() + " " + d.toLocaleDateString([], { month: "short" });
-  if (d.getMinutes()) o.minute = "2-digit";
-  return d.toLocaleString([], o);
+  return (value === 0 ? "back " : "resets ") + when(new Date(res.resetsAt).getTime());
 }
 // When a window is on pace to hit 100% before it resets, else null. Needs a tenth of the window
 // elapsed so an early spike does not raise a false alarm.
@@ -186,13 +192,14 @@ function toRow(id, p) {
   if (blocked.length) {
     out = true;
     const latest = blocked.map(b => b.res.resetsAt).filter(Boolean).sort().pop();
-    note = latest ? "Back in " + until(latest) : "Out of room";
+    note = latest ? "Back " + when(new Date(latest).getTime()) : "Out of room";
     backMs = latest ? new Date(latest).getTime() : null;
   } else if (soon) {
-    const when = soon.fullMs - now < 86400000 ? "in " + left(soon.fullMs - now) : stamp(soon.fullMs);
+    const at = when(soon.fullMs);
     warn = true;
-    note = "Runs out " + when;
-    noteTitle = soon.name + " on pace to run out " + when + ", before it resets " + stamp(soon.resetMs);
+    // "Out" instead of "Runs out" once the time carries a weekday and date, so the line stays short.
+    note = (soon.fullMs - now < 86400000 ? "Runs out " : "Out ") + at;
+    noteTitle = soon.name + " on pace to run out " + at + ", before it resets " + when(soon.resetMs);
   }
   // The room a reset throws away: the tightest limit other than the 5-hour session (the week's or
   // the month's), and when it resets. The card's headline and the use-first order read these.
@@ -207,7 +214,7 @@ function toRow(id, p) {
 
 // Use-first order: the account whose room resets soonest goes first, because room left at a reset
 // is lost. Accounts under 10% come after the rest, and accounts at a limit last, soonest back first.
-function rank(x) { return x.out ? 2 : x.score < 10 ? 1 : 0; }
+function rank(x) { return x.down ? 3 : x.out ? 2 : x.score < 10 ? 1 : 0; }
 function byUseFirst(a, b) {
   const at = a.out ? a.backMs : a.resetMs, bt = b.out ? b.backMs : b.resetMs;
   return rank(a) - rank(b) || (at ?? Infinity) - (bt ?? Infinity) || b.leftover - a.leftover;
@@ -251,12 +258,19 @@ function meter(value, name, res) {
 // then a status: Back in … / Runs out … / <limit> low / Use this one / Ready.
 function card(x, isBest) {
   const t = tone(x);
-  const box = el("div", "card" + (isBest ? " best" : "") + (x.p.stale ? " stale" : ""));
+  const box = el("div", "card" + (isBest ? " best" : "") + (x.p.stale ? " stale" : "") + (x.down ? " down" : ""));
   const inner = el("div", "in");
   const who = el("div", "who");
   const kicker = [x.isClaude ? "Claude" : "", x.p.plan || ""].filter(Boolean).join(" · ");
   const krow = el("div", "krow");
   krow.appendChild(el("div", "kicker", kicker || " "));
+  if (x.down) {
+    // An account the app remembers but cannot read right now (signed out): its message, no bars.
+    who.append(krow, nameEl(accountName(x)));
+    inner.append(who, el("div", "downmsg", x.message));
+    box.appendChild(inner);
+    return box;
+  }
   if (inUse(x.p)) {
     const badge = el("span", "inuse", "In use");
     badge.title = "Usage seen going up " + left(Date.now() - new Date(x.p.usageRoseAt)) + " ago: a session is running on this account";
@@ -268,9 +282,9 @@ function card(x, isBest) {
   const room = el("div", "room " + (x.out ? "out" : x.warn || x.leftover < 25 ? "warn" : "ok"), x.leftover + "%");
   room.appendChild(el("small", null, "LEFT"));
   const side = el("div", "side");
-  if (!x.out && x.resetMs) side.appendChild(el("div", "resetin", "resets in " + left(x.resetMs - Date.now())));
+  if (!x.out && x.resetMs) side.appendChild(el("div", "resetin", "resets " + when(x.resetMs)));
   const status = el("div", "status " + t);
-  status.append(el("span", "dot"), x.out || x.warn ? x.note : isBest ? "Use this one" : x.score < 25 ? x.low + " low" : "Ready");
+  status.append(el("span", "dot"), el("span", null, x.out || x.warn ? x.note : isBest ? "Use this one" : x.score < 25 ? x.low + " low" : "Ready"));
   side.appendChild(status);
   const mid = el("div", "mid");
   mid.append(room, side);
@@ -301,31 +315,46 @@ function fit() {
 }
 new ResizeObserver(fit).observe(document.documentElement);
 
+// An account with an error and no data at all (signed out): a card of its own, with the message.
+function downRow(e) {
+  const name = e.displayName || e.providerId;
+  return { id: e.providerId, p: { displayName: name, plan: "" }, down: true, message: e.message || "Couldn't refresh",
+           bars: [], out: false, score: 0, leftover: 0, resetMs: null, backMs: null, extras: [],
+           isClaude: e.providerId.startsWith("claude") };
+}
+
 function render(data) {
   const providers = data.providers || {};
-  const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean).sort(byUseFirst);
+  const errors = data.errors || [];
+  const rows = Object.entries(providers).map(([id, p]) => toRow(id, p)).filter(Boolean)
+    .concat(errors.filter(e => !providers[e.providerId]).map(downRow)).sort(byUseFirst);
   const verdict = document.getElementById("verdict"), sub = document.getElementById("sub");
   verdict.textContent = ""; sub.textContent = "";
-  const best = rows.find(x => !x.out);
+  const live = rows.filter(x => !x.down);
+  const best = live.find(x => !x.out);
   if (!rows.length) {
     verdict.textContent = "No accounts yet";
     sub.textContent = "Turn providers on in the OpenUsage menu bar app and they appear here.";
   } else if (best) {
-    const when = best.resetMs ? ", resets in " + left(best.resetMs - Date.now()) : "";
-    verdict.append("Use ", accountName(best), el("span", "dim", " · " + best.leftover + "% left" + when));
-    const ready = rows.filter(x => !x.out).length;
+    const at = best.resetMs ? ", resets " + when(best.resetMs) : "";
+    verdict.append("Use ", accountName(best), el("span", "dim", " · " + best.leftover + "% left" + at));
+    const ready = live.filter(x => !x.out).length;
     sub.textContent = ready + " of " + rows.length + " accounts ready · soonest reset first, because room left at a reset is lost";
-  } else {
-    const first = rows.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
+  } else if (live.length) {
+    const first = live.map(x => x.backMs).filter(Boolean).sort((a, b) => a - b)[0];
     verdict.textContent = "Every account is out";
-    sub.textContent = first ? "First one back in " + left(first - Date.now()) : "No reset time reported yet";
+    sub.textContent = first ? "First one back " + when(first) : "No reset time reported yet";
+  } else {
+    verdict.textContent = "No account is signed in";
+    sub.textContent = "Sign in to an account, then this page refreshes by itself.";
   }
   const grid = document.getElementById("cards");
   grid.textContent = "";
   for (const x of rows) grid.appendChild(card(x, x === best));
   fit();
   // Accounts whose last refresh failed: their card (if any) shows older numbers, so say which.
-  const failed = (data.errors || []).map(e => {
+  // A signed-out account is a card of its own that already says so.
+  const failed = errors.filter(e => providers[e.providerId]).map(e => {
     const p = providers[e.providerId];
     return (p && p.displayName || e.providerId) + (e.message ? " (" + e.message + ")" : "");
   });
