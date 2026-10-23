@@ -66,17 +66,27 @@ export function App() {
   }, [view.waiting, showSignIn])
 
   const page = limits ? buildPage(limits, now) : null
-  useLayoutEffect(() => fit(grid.current))
+  // Fit after every render, and again two frames later, once the charts have measured themselves
+  // (they first draw at a placeholder size).
+  useLayoutEffect(() => {
+    fit(grid.current)
+    let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => fit(grid.current)) })
+    return () => cancelAnimationFrame(frame)
+  })
+  // And whenever the window, the grid or the loaded font changes the room there is.
   useEffect(() => {
-    const onResize = () => fit(grid.current)
-    window.addEventListener('resize', onResize)
-    void document.fonts?.ready.then(onResize)
-    return () => window.removeEventListener('resize', onResize)
+    let frame = 0
+    const refit = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => fit(grid.current)) }
+    window.addEventListener('resize', refit)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refit)
+    if (grid.current) observer?.observe(grid.current)
+    void document.fonts?.ready.then(refit)
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', refit); observer?.disconnect() }
   }, [])
 
   const canSignIn = new Set(signIn.signInProviderIds || [])
   return (
-    <div className='flex min-h-dvh flex-col sm:h-dvh'>
+    <div id='page' className='flex min-h-dvh flex-col sm:h-dvh'>
       <header className='bg-card sticky top-0 z-50 border-b'>
         <div className='mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-2 sm:px-6'>
           <span className='text-xl font-semibold'>AI Accounts</span>

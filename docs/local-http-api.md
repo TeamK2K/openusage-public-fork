@@ -16,7 +16,9 @@ refreshes itself every 30 seconds; it follows the Mac's light or dark appearance
 - **Top:** a bar with the title and **Add Account**, then a one-line answer ("Use <account> · N% left,
   resets in 3d 20h") and how many accounts are ready.
 - **Cards:** one per account, all fitted on one screen with no scrolling (phones scroll); the page
-  picks the biggest text at which no card overflows. Claude accounts go by their email. Each card says
+  picks the biggest text at which nothing on a card is cut off. Text never goes below a readable
+  minimum: when the cards don't fit even then (a short window with many accounts), the page scrolls
+  instead. On short windows the top bar and verdict shrink to leave the cards more room. Claude accounts go by their email. Each card says
   what is left before its weekly (or monthly) reset and how long until it, its plan and any reset passes
   or extra credit, a status badge (Use this one, Ready, <limit> low, Runs out in …, Back in …; green,
   amber or red), and its limits as ten-cell battery bars (weekly or monthly first, then session and

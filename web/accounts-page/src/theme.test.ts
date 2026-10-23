@@ -39,4 +39,12 @@ describe('fit to screen', () => {
       expect(cards).toMatch(new RegExp(`${token}: calc\\([^;]*var\\(--fit, 1\\)\\)`))
     }
   })
+
+  it('shrinks the top bar and verdict with the window height, never by theme', () => {
+    const page = block('#page')
+    for (const token of ['--spacing', '--text-sm', '--text-xl', '--text-2xl']) {
+      expect(page).toMatch(new RegExp(`${token}: clamp\\([^;]*vh[^;]*\\)`))
+    }
+    expect(block('.dark')).not.toMatch(/--(spacing|text-)/)
+  })
 })

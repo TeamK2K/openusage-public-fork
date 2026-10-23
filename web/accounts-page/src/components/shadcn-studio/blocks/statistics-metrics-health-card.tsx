@@ -59,6 +59,7 @@ const MetricRow = ({ label, detail, percentage, color: tone }: HealthMetric) => 
           <BarChart data={data} margin={{ left: 0, right: 0 }} maxBarSize={16} accessibilityLayer>
             <Bar
               dataKey='v'
+              isAnimationActive={false}
               radius={12}
               background={{
                 fill: 'color-mix(in oklab, var(--primary) 10%, transparent)',

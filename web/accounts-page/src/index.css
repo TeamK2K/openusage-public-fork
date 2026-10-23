@@ -120,6 +120,24 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Short windows: the top bar, verdict and footer shrink with the window height (together about 90px
+   at 600px tall, full size from about 900px), leaving the rest to the cards. Same in both themes. */
+#page {
+    --spacing: clamp(0.125rem, 0.5vh - 0.05rem, 0.25rem);
+    --text-sm: clamp(0.75rem, 1.4vh + 0.125rem, 0.875rem);
+    --text-xl: clamp(0.9375rem, 2vh + 0.25rem, 1.25rem);
+    --text-2xl: clamp(1.125rem, 2.5vh + 0.25rem, 1.5rem);
+}
+
+/* When the cards can't all fit on one screen at the smallest readable size, fit.ts lets them take
+   the height they need and the page scrolls. */
+html[data-fit='scroll'] #page {
+    height: auto;
+}
+html[data-fit='scroll'] #cards {
+    flex: none;
+}
+
 /* Fit to screen (src/lib/fit.ts sets --fit on the card grid): the cards' spacing, text and corner
    tokens scale with it, so only the cards change size and the top bar, verdict, footer and dialog
    keep one size. */
