@@ -1,4 +1,3 @@
-import JavaScriptCore
 import XCTest
 @testable import OpenUsage
 
@@ -422,65 +421,6 @@ final class AccountSignInTests: XCTestCase {
         XCTAssertEqual(state.snapshots["claude@bb"]?.displayName, "Claude: new@test")
         XCTAssertEqual(state.displayNames["claude@bb"], "Claude: new@test")
         XCTAssertEqual(added.providerIDs, ["claude@bb"])
-    }
-
-    // MARK: The page's time format
-
-    func testPageTimesAreRelativeInOneFormat() throws {
-        let page = String(decoding: SeatsPage.html, as: UTF8.self)
-        let start = try XCTUnwrap(page.range(of: "// <time-format>"))
-        let end = try XCTUnwrap(page.range(of: "// </time-format>"))
-        let context = try XCTUnwrap(JSContext())
-        context.evaluateScript(String(page[start.lowerBound..<end.lowerBound]))
-        func left(_ ms: Double) -> String? { context.objectForKeyedSubscript("left")?.call(withArguments: [ms])?.toString() }
-        let minute = 60_000.0, hour = 60 * minute, day = 24 * hour
-
-        XCTAssertEqual(left(45 * minute), "45m")
-        XCTAssertEqual(left(2 * hour + 29 * minute), "2h 29m")
-        XCTAssertEqual(left(12 * hour + 48 * minute), "12h 48m")
-        XCTAssertEqual(left(3 * hour), "3h")
-        XCTAssertEqual(left(2 * day + 4 * hour + 20 * minute), "2d 4h", "minutes go once it is a day away")
-        XCTAssertEqual(left(6 * day), "6d")
-        XCTAssertEqual(left(13 * day + 5 * hour), "13d", "hours go once it is ten days away")
-        XCTAssertEqual(left(0), "now")
-        let soon = context.evaluateScript("when(Date.now() + \(2 * hour + 29 * minute + 20_000))")?.toString()
-        XCTAssertEqual(soon, "in 2h 29m")
-        XCTAssertEqual(context.evaluateScript("when(Date.now() - 1000)")?.toString(), "now")
-        // No clock times or dates anywhere on the cards.
-        XCTAssertFalse(page.contains("toLocaleTimeString"))
-        XCTAssertFalse(page.contains("toLocaleDateString"))
-    }
-
-    func testPageScriptsParse() throws {
-        let page = String(decoding: SeatsPage.html, as: UTF8.self)
-        let scripts = page.components(separatedBy: "<script>").dropFirst()
-            .map { $0.components(separatedBy: "</script>")[0] }
-        XCTAssertEqual(scripts.count, 2)
-        for script in scripts {
-            let context = try XCTUnwrap(JSContext())
-            var thrown: String?
-            context.exceptionHandler = { _, exception in thrown = exception?.toString() }
-            // Compile only: `new Function` parses the body without running it (no DOM here).
-            context.setObject(script, forKeyedSubscript: "source" as NSString)
-            context.evaluateScript("new Function(source)")
-            XCTAssertNil(thrown)
-        }
-    }
-
-    func testPageHasTheTopBarAndSignInPanel() throws {
-        let page = String(decoding: SeatsPage.html, as: UTF8.self)
-        XCTAssertTrue(page.contains(">AI Accounts<"))
-        XCTAssertTrue(page.contains(">Add Account<"))
-        XCTAssertTrue(page.contains("\"Waiting for sign-in…\""))
-        XCTAssertTrue(page.contains(">Paste Code<"))
-        XCTAssertTrue(page.contains("\"Sign In\""))
-        XCTAssertTrue(page.contains("/v1/accounts/add"))
-        XCTAssertTrue(page.contains("/v1/accounts/signin/code"))
-        // The sign-in script is appended inside the one document, which it closes.
-        XCTAssertTrue(page.hasSuffix("</body>\n</html>"))
-        XCTAssertEqual(page.components(separatedBy: "<html").count, 2)
-        XCTAssertLessThan(try XCTUnwrap(page.range(of: "function fit()")).lowerBound,
-                          try XCTUnwrap(page.range(of: "\nrefresh();")).lowerBound, "the refresh loop starts after both scripts")
     }
 }
 

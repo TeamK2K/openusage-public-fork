@@ -32,7 +32,10 @@ let package = Package(
                 .copy("Resources/ProviderIcons"),
                 .copy("Resources/pricing_supplement.json"),
                 .copy("Resources/pricing_litellm_snapshot.json"),
-                .copy("Resources/pricing_models_dev_snapshot.json")
+                .copy("Resources/pricing_models_dev_snapshot.json"),
+                // The accounts page served at `/`, built from web/accounts-page by
+                // script/build_accounts_page.sh (committed, so this build needs no Node).
+                .copy("Resources/accounts_page.html")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

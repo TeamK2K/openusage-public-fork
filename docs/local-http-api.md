@@ -10,32 +10,46 @@ The server starts automatically with the app. If the port is already in use, the
 
 ### `GET /`
 
-A compact accounts page for people, not scripts: one row per account with its session and weekly
-(or monthly) room, accounts that are out of room flagged in red with when they come back, and the Claude
-account with the most room named on top. It reads `/v1/limits` from the same address and refreshes
-itself every 30 seconds. Accounts whose last refresh failed are listed under the table; an account with
-no data at all (a Claude account no login holds, shown as **Signed Out**) is a dimmed card with its
-message instead of bars, and counts as not ready. Every time on the page is relative, in one format:
-"in 45m", "in 2h 29m", "in 6d 2h", "in 13d" (minutes are dropped a day or more out, hours ten days or
-more out); there are no clock times or dates. Status lines stay on one line. The footer
-gives the age of the oldest numbers shown. Each row also has a Fable bar, an amber "runs out" note when
-usage is on pace to hit a limit before it resets, and a small line for reset passes and extra credit.
-The page opens with a one-line answer ("Use <account> · N% left, resets in 3d 20h") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll); the page picks the biggest text at which no card wraps, cuts off or clips a line. Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and how long until that reset, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out in …, Back in …) and its limits as ten-cell battery bars, the weekly (or monthly) one first, each with its reset time. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. An **In use** badge marks every account whose usage was seen going up in the last 15 minutes (the provider's `usageRoseAt`), so you can see when a session runs on a different account than the outlined one. `GET /seats` serves the same page. Settings → **Click Opens
-Web Page** makes the menu bar icon open it.
+A compact accounts page for people, not scripts. It reads `/v1/limits` from the same address and
+refreshes itself every 30 seconds; it follows the Mac's light or dark appearance.
+
+- **Top:** a bar with the title and **Add Account**, then a one-line answer ("Use <account> · N% left,
+  resets in 3d 20h") and how many accounts are ready.
+- **Cards:** one per account, all fitted on one screen with no scrolling (phones scroll); the page
+  picks the biggest text at which no card overflows. Claude accounts go by their email. Each card says
+  what is left before its weekly (or monthly) reset and how long until it, its plan and any reset passes
+  or extra credit, a status badge (Use this one, Ready, <limit> low, Runs out in …, Back in …; green,
+  amber or red), and its limits as ten-cell battery bars (weekly or monthly first, then session and
+  Fable), each with its reset time. A bar changes colour as it runs low (under 75% left, then under
+  40%).
+- **Order:** soonest reset first, because room left at a reset is lost; accounts under 10% come next
+  and accounts at a limit last, soonest back first. The first card is the account to use and is
+  outlined. An **In Use** badge marks every account whose usage was seen going up in the last 15 minutes
+  (the provider's `usageRoseAt`), so you can see when a session runs on a different account.
+- **Signed out:** an account with no data at all (a Claude account no login holds) is a card with its
+  message instead of bars, and counts as not ready.
+- **Footer:** the age of the oldest numbers shown, and any account whose last refresh failed.
+
+Every time on the page is relative, in one format: "in 45m", "in 2h 29m", "in 6d 2h", "in 13d" (minutes
+are dropped a day or more out, hours ten days or more out); there are no clock times or dates.
+`GET /seats` serves the same page. Settings → **Click Opens Web Page** makes the menu bar icon open it.
+
+The page is one self-contained HTML file (no external assets) built from `web/accounts-page` with
+`script/build_accounts_page.sh`; the built file is committed, so building the app needs no Node.
 
 **Adding and signing in accounts.** A top bar carries the page title and an **Add Account** button.
 Add Account → Claude or Codex makes the next free seat folder exactly as machine-config's `seat add`
 does (`~/.claude-seatN` or `~/.codex-seatN`, owner-only, with an empty `.seat` marker; N is one past the
 highest seat number either tool uses) and runs that tool's login with only that folder as its home
 (`claude auth login` with `CLAUDE_CONFIG_DIR`, `codex login` with `CODEX_HOME`), which opens the
-browser. While it waits the page shows **Waiting for sign-in…**, the sign-in link the tool printed,
+browser. While it waits a dialog shows **Waiting for sign-in…**, the sign-in link the tool printed,
 and a **Paste Code** box: a code goes to the login, and the address of a sign-in page that didn't load
 (Chrome can answer "HTTP 431" on the local return page when localhost cookies grow too big) is opened
 by the app itself, without cookies, which finishes the same step. A signed-out Claude card has a
 **Sign In** button that runs the same login in the seat folder it was last signed in at (made again if
 it was removed); an account last signed in at the default folder or Claude Desktop signs in to a new
 seat instead, so whatever account holds that place now is never replaced. One sign-in runs at a time;
-it stops after 10 minutes, and Cancel stops it. When it succeeds the app looks for accounts again and
+it stops after 10 minutes, and Cancel (or closing the dialog) stops it. When it succeeds the app looks for accounts again and
 the new card appears on the page without a restart; the menu bar panel shows it from the next launch.
 A missing `claude`/`codex`, a login that fails, or a timeout shows the reason on the page and in the
 log.

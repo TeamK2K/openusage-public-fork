@@ -151,15 +151,11 @@ final class SeatsPageRouteTests: XCTestCase {
             let page = LocalUsageAPI.respond(method: "GET", path: path, state: state)
             XCTAssertEqual(page.status, 200, path)
             XCTAssertEqual(page.contentType, "text/html; charset=utf-8", path)
+            // The built accounts page resource, byte for byte (its behaviour is tested in web/accounts-page).
+            XCTAssertEqual(page.body, SeatsPage.html, path)
             let html = try XCTUnwrap(page.body.flatMap { String(data: $0, encoding: .utf8) })
-            XCTAssertTrue(html.contains("fetch(\"/v1/limits\""), "the page reads the same-origin limits route")
-            XCTAssertTrue(html.contains("[\"Fable\", fable]"), "each card carries a Fable bar")
-            XCTAssertTrue(html.contains("id=\"cards\""), "accounts are laid out as cards fitted to one screen")
-            XCTAssertTrue(html.contains("id=\"verdict\""), "the page leads with the which-account verdict")
-            XCTAssertTrue(html.contains(".sort(byUseFirst)"), "cards are ordered soonest reset first")
-            XCTAssertTrue(html.contains("p.usageRoseAt"), "the account being used right now is badged")
-            XCTAssertTrue(html.contains("el(\"div\", \"cells \""), "limits draw as ten-cell battery bars")
-            XCTAssertTrue(html.contains("[[longName, long], [\"Session\", session]"), "the weekly bar comes first")
+            XCTAssertTrue(html.contains("/v1/limits"), "the page reads the same-origin limits route")
+            XCTAssertTrue(html.contains("<div id=\"root\"></div>"), path)
         }
     }
 
