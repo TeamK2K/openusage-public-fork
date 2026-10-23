@@ -1,7 +1,8 @@
 import Foundation
 import Network
 
-/// Loopback-only HTTP/1.1 listener for the read-only usage API on `127.0.0.1:6736`. Starts with
+/// Loopback-only HTTP/1.1 listener for the usage API on `127.0.0.1:6736` (read-only, except the
+/// accounts page's sign-in routes in `AccountsAPI`). Starts with
 /// the app; when the port is already taken the feature is silently disabled for the session
 /// (matching the original app). At most 16 requests are served concurrently — beyond that a
 /// connection gets `503 {"error":"server_busy"}` immediately.
@@ -14,8 +15,12 @@ final class LocalUsageServer {
     /// be reached") while curl worked; this matches Chrome's own 256 KB request-header cap.
     private static let headLimit = 256 * 1024
     private static let receiveChunk = 64 * 1024
+    /// The accounts page's POST bodies are a few short JSON fields; a pasted code is far below this.
+    static let bodyLimit = 16 * 1024
 
     private let state: @MainActor () -> LocalUsageAPI.State
+    /// The accounts page's sign-in flow (`/v1/accounts/…`); `nil` leaves those routes unserved.
+    private let accounts: AccountSignIn?
     private let queue = DispatchQueue(label: "openusage.local-api")
     private var listener: NWListener?
     private var activeConnections = 0
@@ -23,8 +28,9 @@ final class LocalUsageServer {
     /// port taken), or once the listener stops.
     private(set) var isListening = false
 
-    init(state: @escaping @MainActor () -> LocalUsageAPI.State) {
+    init(state: @escaping @MainActor () -> LocalUsageAPI.State, accounts: AccountSignIn? = nil) {
         self.state = state
+        self.accounts = accounts
     }
 
     func start() {
@@ -79,8 +85,8 @@ final class LocalUsageServer {
         receiveHead(connection, buffered: Data())
     }
 
-    /// Reads until the end of the request head (`\r\n\r\n`). GET/OPTIONS bodies are irrelevant,
-    /// so the head is all the router needs.
+    /// Reads until the end of the request head (`\r\n\r\n`), then its `Content-Length` body (the
+    /// accounts page's POSTs; GET/OPTIONS carry none), bounded by `bodyLimit`.
     private func receiveHead(_ connection: NWConnection, buffered: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: Self.receiveChunk) { data, _, isComplete, error in
             Task { @MainActor [weak self] in
@@ -94,7 +100,23 @@ final class LocalUsageServer {
                 }
                 if let headEnd = buffered.range(of: Data("\r\n\r\n".utf8)) {
                     let head = String(data: buffered[..<headEnd.lowerBound], encoding: .utf8) ?? ""
-                    self.finish(connection, with: self.route(head: head))
+                    guard let length = Self.contentLength(head) else {
+                        self.finish(connection, with: LocalUsageAPI.badRequest)
+                        return
+                    }
+                    guard length <= Self.bodyLimit else {
+                        self.finish(connection, with: LocalUsageAPI.bodyTooLarge)
+                        return
+                    }
+                    let received = buffered.count - headEnd.upperBound
+                    if received >= length {
+                        let body = buffered.subdata(in: headEnd.upperBound..<(headEnd.upperBound + length))
+                        self.finish(connection, with: self.route(head: head, body: body))
+                    } else if error != nil || isComplete {
+                        self.finish(connection, with: nil)
+                    } else {
+                        self.receiveHead(connection, buffered: buffered)
+                    }
                 } else if buffered.count >= Self.headLimit {
                     self.finish(connection, with: LocalUsageAPI.headTooLarge)
                 } else if error != nil || isComplete {
@@ -106,11 +128,29 @@ final class LocalUsageServer {
         }
     }
 
-    private func route(head: String) -> LocalUsageAPI.Response {
+    private func route(head: String, body: Data) -> LocalUsageAPI.Response {
         let (method, path) = Self.parseRequestLine(head)
-        // Path is secret-free (the loopback API serves only normalized usage); Debug-only.
+        // Path is secret-free (the loopback API serves only normalized usage); Debug-only. The body
+        // (a pasted sign-in code) is never logged.
         AppLog.debug(.localAPI, "\(method) \(path)")
+        if let accounts, AccountsAPI.handles(path: path) {
+            return AccountsAPI.respond(method: method, path: path, body: body, signIn: accounts)
+        }
         return LocalUsageAPI.respond(method: method, path: path, state: state())
+    }
+
+    /// The request's `Content-Length` (0 when absent); `nil` for a malformed value.
+    nonisolated static func contentLength(_ head: String) -> Int? {
+        for line in head.split(separator: "\r\n").dropFirst() {
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == "content-length"
+            else { continue }
+            guard let value = Int(line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)), value >= 0 else {
+                return nil
+            }
+            return value
+        }
+        return 0
     }
 
     /// Parse the HTTP request line into `(method, path)`. Tolerates an empty/malformed head: a
@@ -140,10 +180,15 @@ final class LocalUsageServer {
     private nonisolated static func send(_ response: LocalUsageAPI.Response, over connection: NWConnection) {
         let reason: String = switch response.status {
         case 200: "OK"
+        case 202: "Accepted"
         case 204: "No Content"
+        case 400: "Bad Request"
         case 404: "Not Found"
         case 405: "Method Not Allowed"
+        case 409: "Conflict"
+        case 413: "Content Too Large"
         case 431: "Request Header Fields Too Large"
+        case 500: "Internal Server Error"
         case 503: "Service Unavailable"
         default: "OK"
         }

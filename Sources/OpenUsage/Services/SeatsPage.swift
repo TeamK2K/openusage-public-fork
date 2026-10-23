@@ -1,12 +1,14 @@
 import Foundation
 
-/// The concise "which account has room" page the local server serves at `/`. One card per account,
-/// all fitted on one screen, named by its email and headed by what is left before its reset and when
-/// that reset comes, then a status and its session / weekly (or monthly) / Fable bars. Cards run
-/// soonest reset first, because room left at a reset is lost; the first one is named on top and outlined. It reads `/v1/limits` from the same origin and
-/// refreshes itself, so it needs nothing beyond the running app. Self-contained: no external assets.
+/// The concise "which account has room" page the local server serves at `/`. A top bar (title, Add
+/// Account), then one card per account, all fitted on one screen, named by its email and headed by what
+/// is left before its reset and how long until that reset, then a status and its session / weekly (or
+/// monthly) / Fable bars. Every time on it is relative ("in 2d 4h"). Cards run soonest reset first,
+/// because room left at a reset is lost; the first one is named on top and outlined. It reads
+/// `/v1/limits` and `/v1/accounts/signin` from the same origin and refreshes itself, so it needs nothing
+/// beyond the running app. Self-contained: no external assets. The sign-in script is `SeatsPageSignIn`.
 enum SeatsPage {
-    static let html: Data = Data(source.utf8)
+    static let html: Data = Data((source + SeatsPageSignIn.source).utf8)
 
     private static let source = #"""
 <!doctype html>
@@ -23,60 +25,83 @@ enum SeatsPage {
           --bar:#4d96f2; --warn:#e3a43c; --out:#f06868; --ok:#52c886; }
 }
 * { box-sizing: border-box; }
+[hidden] { display:none !important; }
 html { font-size: clamp(14px, 0.4vw + 0.4vh + 6px, 22px); }
 body { margin:0; background:var(--bg); color:var(--text);
        font: 1rem/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
 /* One screen, no scrolling: header, a card grid that takes the rest, a one-line footer. */
-main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: clamp(14px, 2.2vw, 40px); }
+main { height:100svh; display:flex; flex-direction:column; gap:.9rem; padding: clamp(14px, 2.2vw, 40px); }
 .top { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:1.2rem; row-gap:.2rem; }
+.bar { flex-basis:100%; display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:.2rem; }
+.bar .title { font-size:.8rem; font-weight:650; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
 .top h1 { margin:0; font-size:1.75rem; line-height:1.15; font-weight:650; letter-spacing:-.01em; overflow-wrap:anywhere; }
 .top h1 .dim { color:var(--muted); font-weight:500; }
 .top .sub { margin:0; color:var(--muted); }
 .error { flex-basis:100%; margin:.3rem 0 0; color:var(--out); }
+.btn { font:inherit; font-size:.85rem; font-weight:600; line-height:1.3; color:var(--text); background:var(--card);
+       border:1px solid var(--line); border-radius:8px; padding:.3rem .8rem; cursor:pointer; text-decoration:none; white-space:nowrap; }
+.btn.primary { background:var(--bar); border-color:var(--bar); color:#fff; }
+.btn:disabled { opacity:.5; cursor:default; }
+.add { position:relative; }
+.menu { position:absolute; right:0; top:calc(100% + .3rem); z-index:2; display:flex; flex-direction:column; gap:.25rem; padding:.35rem;
+        min-width:8rem; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.14); }
+.menu .btn { text-align:left; border-color:transparent; }
+/* The sign-in panel: waiting, the paste box, and how it ended. */
+.signin { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .8rem; padding:.6rem .9rem; font-size:.9rem;
+          background:var(--card); border:1px solid var(--bar); border-radius:12px; }
+.signin.failed { border-color:var(--out); }
+.signin.failed #siTitle { color:var(--out); }
+.signin .sitext { flex:1 1 18rem; min-width:0; }
+.signin .sidetail { color:var(--muted); }
+.signin .notice { color:var(--warn); }
+.signin form { display:flex; gap:.4rem; flex:1 1 22rem; min-width:0; }
+.signin input { flex:1; min-width:0; font:inherit; padding:.3rem .6rem; color:var(--text); background:var(--bg);
+                border:1px solid var(--line); border-radius:8px; }
 #cards { flex:1; min-height:0; display:grid; gap: clamp(8px, 1vw, 18px);
          grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 3), minmax(0, 1fr)); }
-.card { container-type:size; min-width:0; min-height:0; overflow:hidden; background:var(--card);
-        border:1px solid var(--line); border-radius:14px; }
+.card { min-width:0; min-height:0; overflow:hidden; background:var(--card); border:1px solid var(--line); border-radius:14px; }
 .card.best { border-color:var(--bar); box-shadow: inset 0 0 0 1px var(--bar); }
-.card.stale, .card.down { opacity:.55; }
-/* Everything inside scales with the card, so a 4-card and a 9-card screen both read cleanly. */
-.in { height:100%; display:flex; flex-direction:column; gap:3.2cqh; padding: 5.5cqmin 6cqmin;
-      font-size: clamp(10px, min(5.4cqh, 6.4cqw), 26px); }
+.card.stale, .card.down .in > :not(.signrow) { opacity:.55; }
+/* Everything inside is sized in em off one font size, which fit() picks per screen so that no card
+   wraps, cuts off or clips a line. */
+.in { height:100%; display:flex; flex-direction:column; gap:.55em; padding:.85em .95em; font-size:var(--fs, 14px); }
 .who { min-width:0; }
-.mid { display:flex; justify-content:space-between; align-items:flex-end; gap:.8em; }
+.mid { display:flex; justify-content:space-between; align-items:flex-end; gap:.6em; }
 .krow { display:flex; align-items:center; gap:.6em; min-width:0; }
 .krow .kicker { flex:1; min-width:0; }
 /* On the account whose usage went up in the last 15 minutes: the one being used right now. */
 .inuse { flex:none; font-size:.68em; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--bar);
          border:1px solid var(--bar); border-radius:999px; padding:0 .6em; line-height:1.25; }
-.kicker { font-size:.72em; color:var(--faint); letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kicker { font-size:.72em; line-height:1.3; color:var(--faint); letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* The account's email is its name: never cut off, it wraps at the @ onto a second line instead. */
-.name { font-size:1.2em; font-weight:650; line-height:1.15; overflow-wrap:anywhere; overflow:hidden;
+.name { font-size:1.1em; font-weight:650; line-height:1.15; overflow-wrap:anywhere; overflow:hidden;
         display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .extras { font-size:.78em; color:var(--muted); margin-top:.15em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.room { flex:none; font-size:2.9em; font-weight:700; line-height:1; font-variant-numeric: tabular-nums; }
+.room { flex:none; font-size:2.4em; font-weight:700; line-height:1; font-variant-numeric: tabular-nums; }
 .room small { display:block; font-size:.3em; font-weight:500; color:var(--faint); letter-spacing:.05em; margin-top:.3em; }
 .room.warn, .status.warn { color:var(--warn); } .room.out, .status.out { color:var(--out); }
-.side { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:.3em; text-align:right; padding-bottom:1.1em; }
-.resetin { font-size:1.05em; font-weight:650; text-wrap:balance; }
+.side { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-end; gap:.25em; text-align:right; padding-bottom:1em; }
+.resetin { max-width:100%; font-size:.95em; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* A status is always one line: the dot stays, the text never wraps. */
-.status { font-size:.85em; font-weight:600; color:var(--ok); display:flex; align-items:center; justify-content:flex-end; gap:.45em; max-width:100%; white-space:nowrap; }
+.status { font-size:.8em; font-weight:600; color:var(--ok); display:flex; align-items:center; justify-content:flex-end; gap:.45em; max-width:100%; white-space:nowrap; }
 .status span:not(.dot) { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .dot { width:.55em; height:.55em; border-radius:50%; background:currentColor; flex:none; }
 /* The limits follow the headline with normal spacing, so a card with one or two bars has no gap. */
-.bars { display:flex; flex-direction:column; gap:2.6cqh; }
+.bars { display:flex; flex-direction:column; gap:.5em; }
 /* A remembered account with no login: its message stands where the bars would be. */
 .downmsg { color:var(--muted); font-size:.9em; overflow-wrap:anywhere; overflow:hidden;
            display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; }
-.meter { display:grid; grid-template-columns: auto 1fr auto; column-gap:.5em; row-gap:.3em; align-items:baseline; }
+.signrow { margin-top:auto; }
+.signrow .btn { font-size:.85em; }
+.meter { display:grid; grid-template-columns: auto 1fr auto; column-gap:.5em; row-gap:.25em; align-items:baseline; }
 .meter .lbl { font-size:.8em; color:var(--muted); }
-.when { font-size:.72em; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.when { min-width:0; font-size:.72em; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .when.out { color:var(--out); }
 .pct { font-size:.85em; color:var(--muted); font-variant-numeric: tabular-nums; }
 .pct.out { color:var(--out); }
 /* Battery bars: ten cells per limit, each worth 10%, the last one filled part-way. */
 .cells { grid-column: 1 / -1; display:grid; grid-template-columns:repeat(10, 1fr); gap:.2em; }
-.cell { height:.8em; border-radius:.18em; background:linear-gradient(to right, var(--c) var(--f), var(--track) var(--f)); }
+.cell { height:.7em; border-radius:.18em; background:linear-gradient(to right, var(--c) var(--f), var(--track) var(--f)); }
 .cells.ok { --c:var(--bar); } .cells.warn { --c:var(--warn); } .cells.out { --c:var(--out); }
 .empty { color:var(--muted); }
 .foot { display:flex; flex-wrap:wrap; gap:.3rem 1.2rem; font-size:.8rem; color:var(--faint); }
@@ -85,7 +110,7 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
 @media (max-width: 640px) {
   main { height:auto; min-height:100svh; }
   #cards { display:flex; flex-direction:column; }
-  .card { height:auto; flex:none; container-type:normal; }
+  .card { height:auto; flex:none; }
   .in { font-size:15px; gap:.9em; padding:1em 1.1em; }
   .bars { gap:.7em; }
   .top h1 { font-size:1.45rem; }
@@ -95,21 +120,54 @@ main { height:100svh; display:flex; flex-direction:column; gap:1.1rem; padding: 
 <body>
 <main>
   <header class="top">
+    <div class="bar">
+      <span class="title">AI Accounts</span>
+      <div class="add">
+        <button class="btn primary" id="addBtn" type="button" aria-haspopup="true" aria-expanded="false">Add Account</button>
+        <div class="menu" id="addMenu" hidden>
+          <button class="btn" type="button" data-tool="claude">Claude</button>
+          <button class="btn" type="button" data-tool="codex">Codex</button>
+        </div>
+      </div>
+    </div>
     <h1 id="verdict">Loading…</h1>
     <p class="sub" id="sub"></p>
     <p class="error" id="error" hidden>OpenUsage isn't answering on this Mac. Open the OpenUsage menu bar app, then this page refreshes by itself.</p>
   </header>
+  <section class="signin" id="signin" hidden>
+    <div class="sitext"><strong id="siTitle"></strong> <span class="sidetail" id="siDetail"></span> <span class="notice" id="siNotice"></span></div>
+    <a class="btn" id="siLink" target="_blank" rel="noopener" hidden>Open Sign-In Page</a>
+    <form id="siForm" hidden>
+      <input id="siCode" autocomplete="off" spellcheck="false" aria-label="Sign-in code" placeholder="Paste the code, or the address of a page that didn't load">
+      <button class="btn primary" type="submit">Paste Code</button>
+    </form>
+    <button class="btn" id="siCancel" type="button" hidden>Cancel</button>
+    <button class="btn" id="siClose" type="button" hidden>Close</button>
+  </section>
   <div id="cards"></div>
   <div class="foot"><span id="footer"></span><span class="issues" id="issues" hidden></span></div>
 </main>
 <script>
 const REFRESH_MS = 30000;
 
+// <time-format> Every time on this page is relative, in one format: "in 45m", "in 2h 29m", "in 6d 2h",
+// "in 13d". Minutes go once it is a day or more away, hours once it is ten days or more away. No clock
+// times or dates, so a card's lines stay short enough never to wrap.
 function left(ms) {
   if (ms <= 0) return "now";
-  const m = Math.round(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), r = m % 60;
-  return d ? d + "d " + h + "h" : h ? h + "h" + (r ? " " + r + "m" : "") : r + "m";
+  if (ms >= 86400000) {
+    const hours = Math.round(ms / 3600000), d = Math.floor(hours / 24), h = hours % 24;
+    return d >= 10 ? Math.round(ms / 86400000) + "d" : d + "d" + (h ? " " + h + "h" : "");
+  }
+  const m = Math.max(1, Math.round(ms / 60000)), h = Math.floor(m / 60), r = m % 60;
+  return h ? h + "h" + (r ? " " + r + "m" : "") : r + "m";
 }
+function when(ms) {
+  const diff = ms - Date.now();
+  return diff <= 0 ? "now" : "in " + left(diff);
+}
+// </time-format>
+
 function pct(r) { return r && typeof r.remaining === "number" ? Math.max(0, Math.min(100, Math.round(r.remaining))) : null; }
 function label(id, p) {
   const raw = (p.displayName || id).replace(/'s Organization$/, "");
@@ -117,20 +175,9 @@ function label(id, p) {
   return m ? { family: "Claude", detail: m[1] } : { family: raw, detail: p.plan || "" };
 }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-// The one format for any moment on this page (a reset, a run-out, a return): "in 2h 47m" inside a
-// day, otherwise weekday, date and time, minutes only when non-zero: "Thu 29 Oct, 2 PM", "Thu 29 Oct, 2:30 PM".
-function when(ms) {
-  const diff = ms - Date.now();
-  if (diff <= 0) return "now";
-  if (diff < 86400000) return "in " + left(diff);
-  const d = new Date(ms), t = { hour: "numeric" };
-  if (d.getMinutes()) t.minute = "2-digit";
-  return d.toLocaleDateString([], { weekday: "short" }) + " " + d.getDate() + " " +
-    d.toLocaleDateString([], { month: "short" }) + ", " + d.toLocaleTimeString([], t);
-}
 
-// Reset time for one bar: "resets in 2h 7m" or "resets Thu 29 Oct, 9 AM"; "back …" in red when that
-// limit is used up; "not started" when a window has no clock running yet.
+// Reset time for one bar: "resets in 2h 7m"; "back in …" in red when that limit is used up; "not
+// started" when a window has no clock running yet.
 function resetText(res, value) {
   if (!res) return "";
   if (!res.resetsAt) return value != null && value >= 100 ? "not started" : "";
@@ -154,9 +201,9 @@ function extras(r) {
   const passes = amount(r.rateLimitResets);
   if (passes > 0) {
     const exp = r.rateLimitResets.expiresAt;
-    const first = (Array.isArray(exp) ? exp : []).map(x => new Date(x)).filter(d => !isNaN(d)).sort((a, b) => a - b)[0];
+    const first = (Array.isArray(exp) ? exp : []).map(x => new Date(x).getTime()).filter(t => !isNaN(t)).sort((a, b) => a - b)[0];
     out.push(passes + (passes === 1 ? " reset pass" : " reset passes") +
-      (first ? " until " + first.getDate() + " " + first.toLocaleDateString([], { month: "short" }) : ""));
+      (first ? (passes === 1 ? ", expires " : ", first expires ") + when(first) : ""));
   }
   for (const key of ["extraUsage", "onDemand"]) {
     const x = r[key];
@@ -195,11 +242,9 @@ function toRow(id, p) {
     note = latest ? "Back " + when(new Date(latest).getTime()) : "Out of room";
     backMs = latest ? new Date(latest).getTime() : null;
   } else if (soon) {
-    const at = when(soon.fullMs);
     warn = true;
-    // "Out" instead of "Runs out" once the time carries a weekday and date, so the line stays short.
-    note = (soon.fullMs - now < 86400000 ? "Runs out " : "Out ") + at;
-    noteTitle = soon.name + " on pace to run out " + at + ", before it resets " + when(soon.resetMs);
+    note = "Runs out " + when(soon.fullMs);
+    noteTitle = soon.name + " on pace to run out " + when(soon.fullMs) + ", before it resets " + when(soon.resetMs);
   }
   // The room a reset throws away: the tightest limit other than the 5-hour session (the week's or
   // the month's), and when it resets. The card's headline and the use-first order read these.
@@ -234,8 +279,6 @@ function nameEl(text) {
   return e;
 }
 
-function clock(iso) { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
-
 // How a card reads: out (a limit at 0), warn (on pace to run out, or under 25% left), else ready.
 function tone(x) { return x.out ? "out" : (x.warn || x.score < 25) ? "warn" : "ok"; }
 
@@ -254,8 +297,8 @@ function meter(value, name, res) {
   return box;
 }
 
-// Headline: what is left before the reset and when that reset comes ("91% left · resets in 3d 20h"),
-// then a status: Back in … / Runs out … / <limit> low / Use this one / Ready.
+// Headline: what is left before the reset and how long until it ("91% left · resets in 3d 20h"),
+// then a status: Back in … / Runs out in … / <limit> low / Use this one / Ready.
 function card(x, isBest) {
   const t = tone(x);
   const box = el("div", "card" + (isBest ? " best" : "") + (x.p.stale ? " stale" : "") + (x.down ? " down" : ""));
@@ -265,9 +308,12 @@ function card(x, isBest) {
   const krow = el("div", "krow");
   krow.appendChild(el("div", "kicker", kicker || " "));
   if (x.down) {
-    // An account the app remembers but cannot read right now (signed out): its message, no bars.
+    // An account the app remembers but cannot read right now (signed out): its message, no bars, and
+    // a Sign In button when the app can sign it back in.
     who.append(krow, nameEl(accountName(x)));
     inner.append(who, el("div", "downmsg", x.message));
+    const row = signInRow(x.id);
+    if (row) inner.appendChild(row);
     box.appendChild(inner);
     return box;
   }
@@ -296,24 +342,47 @@ function card(x, isBest) {
   return box;
 }
 
-// Pick the column count that gives every card the most room: try each count, size the cells, and
-// keep the one whose cards can hold the biggest text (cards want to be about as tall as wide).
+// Fit every card on one screen at the biggest font that leaves nothing cut off: for each column count,
+// search the font size at which no card clips, wraps a one-line field or cuts its name, and keep the
+// column count that allows the biggest one. Measured, not estimated, so it holds for any card mix.
+const MIN_FS = 8, MAX_FS = 26;
+function overflowing(grid) {
+  for (const c of grid.children) {
+    const box = c.firstElementChild;
+    if (box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1) return true;
+    for (const e of c.querySelectorAll(".name, .resetin, .status span, .when, .downmsg"))
+      if (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1) return true;
+  }
+  return false;
+}
 function fit() {
   const grid = document.getElementById("cards"), n = grid.children.length;
-  if (!n || matchMedia("(max-width: 640px)").matches) return;
-  const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
-  const W = grid.clientWidth, H = grid.clientHeight;
-  let best = { cols: 1, rows: n, size: 0 };
-  for (let cols = 1; cols <= n; cols++) {
-    const rows = Math.ceil(n / cols);
-    const w = (W - gap * (cols - 1)) / cols, h = (H - gap * (rows - 1)) / rows;
-    const size = Math.min(w / 1.15, h);
-    if (size > best.size + 0.5) best = { cols, rows, size };
+  if (!n) return;
+  if (matchMedia("(max-width: 640px)").matches) { grid.style.removeProperty("--fs"); return; }
+  const set = (cols, fs) => {
+    grid.style.setProperty("--cols", cols);
+    grid.style.setProperty("--rows", Math.ceil(n / cols));
+    grid.style.setProperty("--fs", fs + "px");
+  };
+  let best = null;
+  for (let cols = 1; cols <= n && !(best && best.fs >= MAX_FS); cols++) {
+    let lo = best ? best.fs + 0.25 : MIN_FS, hi = MAX_FS;
+    set(cols, lo);
+    if (overflowing(grid)) continue;
+    set(cols, hi);
+    if (!overflowing(grid)) lo = hi;
+    while (hi - lo > 0.25) {
+      const mid = (lo + hi) / 2;
+      set(cols, mid);
+      if (overflowing(grid)) hi = mid; else lo = mid;
+    }
+    best = { cols, fs: lo };
   }
-  grid.style.setProperty("--cols", best.cols);
-  grid.style.setProperty("--rows", best.rows);
+  // Nothing fits even at the smallest size (a tiny window): the smallest size, about square.
+  if (!best) best = { cols: Math.min(n, Math.ceil(Math.sqrt(n * 1.5))), fs: MIN_FS };
+  set(best.cols, best.fs);
 }
-new ResizeObserver(fit).observe(document.documentElement);
+new ResizeObserver(fit).observe(document.getElementById("cards"));
 
 // An account with an error and no data at all (signed out): a card of its own, with the message.
 function downRow(e) {
@@ -334,7 +403,7 @@ function render(data) {
   const best = live.find(x => !x.out);
   if (!rows.length) {
     verdict.textContent = "No accounts yet";
-    sub.textContent = "Turn providers on in the OpenUsage menu bar app and they appear here.";
+    sub.textContent = "Add an account above, or turn providers on in the OpenUsage menu bar app.";
   } else if (best) {
     const at = best.resetMs ? ", resets " + when(best.resetMs) : "";
     verdict.append("Use ", accountName(best), el("span", "dim", " · " + best.leftover + "% left" + at));
@@ -363,13 +432,14 @@ function render(data) {
   issues.textContent = failed.length ? "Couldn't refresh: " + failed.join(" · ") : "";
   // The oldest numbers on screen, not the time of this request: a stalled account shows its real age.
   const oldest = rows.map(x => x.p.fetchedAt).filter(Boolean).sort()[0];
+  const age = oldest ? Date.now() - new Date(oldest).getTime() : null;
   document.getElementById("footer").textContent =
-    (oldest ? "Data as of " + clock(oldest) : "No data yet") + " · refreshes every 30 seconds";
+    (age == null ? "No data yet" : "Data from " + (age < 60000 ? "just now" : left(age) + " ago")) + " · refreshes every 30 seconds";
 }
 
 async function refresh() {
   try {
-    const res = await fetch("/v1/limits", { cache: "no-store" });
+    const [res] = await Promise.all([fetch("/v1/limits", { cache: "no-store" }), loadSignIn()]);
     if (!res.ok) throw new Error(res.status);
     render(await res.json());
     document.getElementById("error").hidden = true;
@@ -377,11 +447,6 @@ async function refresh() {
     document.getElementById("error").hidden = false;
   }
 }
-refresh();
-setInterval(refresh, REFRESH_MS);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 </script>
-</body>
-</html>
 """#
 }

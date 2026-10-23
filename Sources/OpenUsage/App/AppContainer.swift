@@ -48,6 +48,10 @@ final class AppContainer {
     let providers: [ProviderRuntime]
     /// Read-only usage API on 127.0.0.1:6736 for other local apps (silently off when the port is taken).
     private let localAPI: LocalUsageServer
+    /// Accounts signed in from the accounts page this session (served by the local API until the next
+    /// launch's registry includes them), and the sign-in flow that adds them.
+    private let addedAccounts: AddedAccounts
+    private let accountSignIn: AccountSignIn
     /// Whether that API is up, so the menu-bar click never sends the user to a page nobody serves.
     var isLocalAPIListening: Bool { localAPI.isListening }
     /// `nil` until `startRefreshing()`, which the welcome screen delays until the user has picked providers.
@@ -209,8 +213,22 @@ final class AppContainer {
         self.transparency = PopoverTransparencyStore()
         self.privacy = MenuBarPrivacyStore()
         let displayNames = Dictionary(registry.providers.map { ($0.id, $0.displayName) }) { first, _ in first }
-        self.localAPI = LocalUsageServer(state: { [layout, enablement, dataStore] in
-            LocalUsageAPI.State(
+        let addedAccounts = AddedAccounts()
+        let launchCards = AddedAccounts.cards(providers, identityKeys: accountAssembly.identityKeysByCard)
+        let signedOutLocations = Dictionary(
+            accountAssembly.claudeCards.compactMap { card in card.signedOutLocation.map { (card.id, $0) } }
+        ) { first, _ in first }
+        let accountSignIn = AccountSignIn(
+            seats: AccountSeats(home: FileManager.default.homeDirectoryForCurrentUser.path),
+            signedOutLocations: { [addedAccounts] in
+                signedOutLocations.filter { !addedAccounts.providerIDs.contains($0.key) }
+            },
+            onSignedIn: { [addedAccounts] _, _ in await addedAccounts.reload(launch: launchCards) }
+        )
+        self.addedAccounts = addedAccounts
+        self.accountSignIn = accountSignIn
+        self.localAPI = LocalUsageServer(state: { [layout, enablement, dataStore, addedAccounts] in
+            var state = LocalUsageAPI.State(
                 enabledOrderedIDs: layout.orderedProviderIDs().filter { enablement.isEnabled($0) },
                 knownIDs: Set(registry.providers.map(\.id)),
                 snapshots: dataStore.snapshots,
@@ -219,7 +237,9 @@ final class AppContainer {
                 displayNames: displayNames,
                 usageRoseAt: dataStore.usageRoseAt
             )
-        })
+            addedAccounts.merge(into: &state)
+            return state
+        }, accounts: accountSignIn)
         localAPI.start()
         // Become the notification-center delegate so banners show while frontmost — a menu-bar accessory
         // effectively always is. Notification authorization is requested the first time a trigger is
@@ -235,7 +255,7 @@ final class AppContainer {
 
     func startRefreshing() {
         guard refreshTask == nil else { return }
-        refreshTask = Self.startPeriodicRefresh(dataStore: dataStore, telemetry: telemetry)
+        refreshTask = Self.startPeriodicRefresh(dataStore: dataStore, addedAccounts: addedAccounts, telemetry: telemetry)
     }
 
     /// Re-runs first-launch credential detection on demand — the enablement half of the Customize
@@ -300,11 +320,15 @@ final class AppContainer {
     /// Sparkle's update bookkeeping, and unrelated global-domain changes from other processes. Waking on
     /// that, with no minimum interval before re-refreshing, collapsed the fixed 5-minute cadence into a
     /// refresh storm.
-    private static func startPeriodicRefresh(dataStore: WidgetDataStore, telemetry: TelemetryRecorder) -> Task<Void, Never> {
+    private static func startPeriodicRefresh(
+        dataStore: WidgetDataStore, addedAccounts: AddedAccounts, telemetry: TelemetryRecorder
+    ) -> Task<Void, Never> {
         Task {
             let wakeSignal = RefreshWakeSignal()
             while !Task.isCancelled {
                 await dataStore.refreshAll()
+                // Accounts signed in from the accounts page this session ride the same cadence.
+                await addedAccounts.refreshAll()
                 // Re-evaluate quota pace milestones every tick — after the refresh so it sees fresh data,
                 // and on every loop (not just on a fetch) so pace worsening from elapsed time alone still
                 // alerts even with the popover closed.

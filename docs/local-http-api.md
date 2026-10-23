@@ -1,6 +1,6 @@
 # Local HTTP API
 
-OpenUsage exposes a read-only HTTP API on the loopback interface so other local apps can consume the same usage data shown in the menu bar.
+OpenUsage exposes an HTTP API on the loopback interface so other local apps can consume the same usage data shown in the menu bar. It is read-only except for the accounts page's sign-in routes under `/v1/accounts`.
 
 **Base URL:** `http://127.0.0.1:6736`
 
@@ -15,12 +15,30 @@ A compact accounts page for people, not scripts: one row per account with its se
 account with the most room named on top. It reads `/v1/limits` from the same address and refreshes
 itself every 30 seconds. Accounts whose last refresh failed are listed under the table; an account with
 no data at all (a Claude account no login holds, shown as **Signed Out**) is a dimmed card with its
-message instead of bars, and counts as not ready. Every reset or return time uses one format: "in 2h 47m"
-inside a day, otherwise "Thu 29 Oct, 2 PM". Status lines stay on one line. The footer
+message instead of bars, and counts as not ready. Every time on the page is relative, in one format:
+"in 45m", "in 2h 29m", "in 6d 2h", "in 13d" (minutes are dropped a day or more out, hours ten days or
+more out); there are no clock times or dates. Status lines stay on one line. The footer
 gives the age of the oldest numbers shown. Each row also has a Fable bar, an amber "runs out" note when
 usage is on pace to hit a limit before it resets, and a small line for reset passes and extra credit.
-The page opens with a one-line answer ("Use <account> · N% left, resets in X" or "resets Thu 29 Oct, 2 PM") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll). Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and when that reset comes, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out …, Back in …) and its limits as ten-cell battery bars, the weekly (or monthly) one first, each with its reset time. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. An **In use** badge marks every account whose usage was seen going up in the last 15 minutes (the provider's `usageRoseAt`), so you can see when a session runs on a different account than the outlined one. `GET /seats` serves the same page. Settings → **Click Opens
+The page opens with a one-line answer ("Use <account> · N% left, resets in 3d 20h") and shows every account as a card, all fitted on one screen with no scrolling (phones scroll); the page picks the biggest text at which no card wraps, cuts off or clips a line. Claude accounts go by their email. Each card leads with what is left before its weekly (or monthly) reset and how long until that reset, colour-coded green, amber or red, then a status (Use this one, Ready, <limit> low, Runs out in …, Back in …) and its limits as ten-cell battery bars, the weekly (or monthly) one first, each with its reset time. Cards run soonest reset first, because room left at a reset is lost; accounts under 10% come next and accounts at a limit last, soonest back first. The first card is the account to use and is outlined. An **In use** badge marks every account whose usage was seen going up in the last 15 minutes (the provider's `usageRoseAt`), so you can see when a session runs on a different account than the outlined one. `GET /seats` serves the same page. Settings → **Click Opens
 Web Page** makes the menu bar icon open it.
+
+**Adding and signing in accounts.** A top bar carries the page title and an **Add Account** button.
+Add Account → Claude or Codex makes the next free seat folder exactly as machine-config's `seat add`
+does (`~/.claude-seatN` or `~/.codex-seatN`, owner-only, with an empty `.seat` marker; N is one past the
+highest seat number either tool uses) and runs that tool's login with only that folder as its home
+(`claude auth login` with `CLAUDE_CONFIG_DIR`, `codex login` with `CODEX_HOME`), which opens the
+browser. While it waits the page shows **Waiting for sign-in…**, the sign-in link the tool printed,
+and a **Paste Code** box: a code goes to the login, and the address of a sign-in page that didn't load
+(Chrome can answer "HTTP 431" on the local return page when localhost cookies grow too big) is opened
+by the app itself, without cookies, which finishes the same step. A signed-out Claude card has a
+**Sign In** button that runs the same login in the seat folder it was last signed in at (made again if
+it was removed); an account last signed in at the default folder or Claude Desktop signs in to a new
+seat instead, so whatever account holds that place now is never replaced. One sign-in runs at a time;
+it stops after 10 minutes, and Cancel stops it. When it succeeds the app looks for accounts again and
+the new card appears on the page without a restart; the menu bar panel shows it from the next launch.
+A missing `claude`/`codex`, a login that fails, or a timeout shows the reason on the page and in the
+log.
 
 ### `GET /v1/limits`
 
@@ -63,9 +81,38 @@ Works for disabled providers too.
 > provider had no snapshot. It now always returns an array, so the shape stays identical whether an
 > ID names one provider or a whole account family.
 
+### Sign-in routes (`/v1/accounts/…`)
+
+Used by the accounts page. Every answer is the sign-in status, with an `error` code when the request
+was refused:
+
+```jsonc
+{
+  "phase": "waiting",                 // idle, waiting, succeeded, failed
+  "tool": "claude",
+  "seat": "seat4",
+  "folder": "~/.claude-seat4",
+  "url": "https://claude.ai/oauth/authorize?…",   // once the login printed it
+  "message": "Waiting for sign-in…",
+  "startedAt": "2026-10-23T12:00:00.000Z",
+  "signInProviderIds": ["claude@ab12cd34"]        // signed-out cards that get a Sign In button
+}
+```
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `GET /v1/accounts/signin` | — | **200** the status |
+| `POST /v1/accounts/add` | `{"tool":"claude"}` or `"codex"` | **202** started; **409** `sign_in_in_progress`; **500** `sign_in_failed` (missing CLI, folder or launch failure; `message` says which) |
+| `POST /v1/accounts/signin` | `{"providerId":"claude@…"}` | as above, plus **404** `provider_not_found` for a card that isn't signed out |
+| `POST /v1/accounts/signin/code` | `{"code":"…"}` | **202** passed on; **409** `no_sign_in` when nothing is waiting |
+| `POST /v1/accounts/signin/cancel` | — | **200**; stops a running sign-in or clears a finished one |
+
+A body that isn't a JSON object with the named string field is **400** `bad_request`; a body over 16 KB
+is **413**. These routes have no auth or origin check, by the owner's call.
+
 ### Everything else
 
-Methods other than `GET`/`OPTIONS` return **405**; unknown routes return **404**. When the server is already handling its maximum of 16 concurrent connections, requests get **503** — back off and retry.
+Methods other than `GET`/`OPTIONS` (and the `POST` sign-in routes above) return **405**; unknown routes return **404**. When the server is already handling its maximum of 16 concurrent connections, requests get **503** — back off and retry.
 
 ## Limits response shape
 
@@ -196,13 +243,20 @@ The in-app model breakdown shown when hovering spend rows is not included in thi
 { "error": "provider_not_found" }
 ```
 
-Codes: `provider_not_found`, `not_found`, `method_not_allowed`, `server_busy`.
+Codes: `provider_not_found`, `not_found`, `method_not_allowed`, `server_busy`, `bad_request`,
+`request_body_too_large`, `request_header_too_large`, and for the sign-in routes `sign_in_in_progress`,
+`no_sign_in`, `sign_in_failed`.
 
 ## CORS and privacy
 
 All responses include permissive CORS headers (`Access-Control-Allow-Origin: *`, methods `GET, OPTIONS`). `OPTIONS` requests return **204** for preflight.
 
 The server only listens on the loopback interface (`127.0.0.1`), so it is not reachable from other machines on your network. Because the CORS header is permissive, though, a web page open in your browser can read your usage snapshots from this API while the app is running. The data exposed is the same usage numbers shown in the menu bar — no credentials or tokens are ever served. This matches the original app's behavior so existing integrations keep working.
+
+The sign-in routes are not in the CORS methods, so another site's script can't send them JSON or read
+their answers, but nothing else checks who is asking: any program on this Mac, or a web page sending a
+plain form post, can start a sign-in or make an empty seat folder. A sign-in only finishes in your own
+browser, and no credential is ever served.
 
 ## Caching behavior
 

@@ -64,7 +64,7 @@ struct SystemProcessRunner: ProcessRunning {
         try process.run()
 
         if exited.wait(timeout: .now() + timeout) == .timedOut {
-            terminateProcessTree(rootPID: process.processIdentifier)
+            Self.terminateProcessTree(rootPID: process.processIdentifier)
             process.terminate()
             _ = exited.wait(timeout: .now() + 0.1)
             if process.isRunning {
@@ -102,7 +102,9 @@ struct SystemProcessRunner: ProcessRunning {
         return DispatchQueue(label: "com.openusage.process-drain.\(stream)", qos: .utility)
     }
 
-    private func terminateProcessTree(rootPID: Int32) {
+    /// SIGTERM a process and everything it spawned (children first, then SIGKILL for them), so a
+    /// wrapper script's real worker never outlives it. Shared with the accounts page's sign-in process.
+    static func terminateProcessTree(rootPID: Int32) {
         let children = childPIDs(of: rootPID)
         for child in children {
             terminateProcessTree(rootPID: child)
@@ -113,7 +115,7 @@ struct SystemProcessRunner: ProcessRunning {
         }
     }
 
-    private func childPIDs(of pid: Int32) -> [Int32] {
+    private static func childPIDs(of pid: Int32) -> [Int32] {
         let pgrep = Process()
         pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         pgrep.arguments = ["-P", String(pid)]
