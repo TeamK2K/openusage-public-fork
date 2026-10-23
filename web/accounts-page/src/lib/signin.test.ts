@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { IDLE, needsRefresh, signInView } from '@/lib/signin'
+import { IDLE, needsRefresh, sameSignIn, signInView, type SignIn } from '@/lib/signin'
 
 describe('the sign-in dialog', () => {
   it('waits with the link, the hint and the paste box', () => {
@@ -26,5 +26,13 @@ describe('the sign-in dialog', () => {
     expect(needsRefresh({ phase: 'waiting' }, { phase: 'succeeded' })).toBe(true)
     expect(needsRefresh(IDLE, { phase: 'waiting' })).toBe(false)
     expect(needsRefresh(IDLE, { phase: 'idle', signInProviderIds: ['claude@a'] })).toBe(true)
+  })
+
+  it('tells a repeated status from a changed one', () => {
+    const waiting: SignIn = { phase: 'waiting', tool: 'codex', message: 'Waiting for sign-in…', signInProviderIds: ['claude@a'] }
+    expect(sameSignIn(waiting, { ...waiting, signInProviderIds: ['claude@a'] })).toBe(true)
+    expect(sameSignIn(IDLE, { phase: 'idle' })).toBe(true)
+    expect(sameSignIn(waiting, { ...waiting, url: 'https://auth.example/login' })).toBe(false)
+    expect(sameSignIn(waiting, { ...waiting, signInProviderIds: [] })).toBe(false)
   })
 })

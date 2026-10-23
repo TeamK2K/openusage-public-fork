@@ -46,7 +46,8 @@ final class AppContainer {
     /// The provider runtimes, kept so on-demand credential detection (the welcome screen and the
     /// Customize "Reset All" reseed) can re-probe `hasLocalCredentials()` on every card.
     let providers: [ProviderRuntime]
-    /// Read-only usage API on 127.0.0.1:6736 for other local apps (silently off when the port is taken).
+    /// Usage API on 127.0.0.1:6736 for other local apps, read-only apart from the accounts page's sign-in
+    /// routes (silently off when the port is taken).
     private let localAPI: LocalUsageServer
     /// Accounts signed in from the accounts page this session (served by the local API until the next
     /// launch's registry includes them), and the sign-in flow that adds them.
@@ -96,9 +97,13 @@ final class AppContainer {
             defaultExpandedMetricIDs: accountDefaults(DefaultLayout.expandedMetricIDs),
             isProviderEnabled: { [enablement] in enablement.isEnabled($0) }
         )
+        // One cache instance for every store: the snapshots share one UserDefaults payload, so a second
+        // instance (the accounts page's added cards) would overwrite this store's entries.
+        let snapshotCache = ProviderSnapshotCache()
         let dataStore = WidgetDataStore(
             registry: registry,
             providers: providers,
+            cache: snapshotCache,
             isProviderEnabled: { [enablement] in enablement.isEnabled($0) },
             orderedDescriptors: { [layout] in layout.visiblePlaced.compactMap { layout.descriptor(for: $0) } },
             notificationSettings: { notificationSettings },
@@ -213,7 +218,7 @@ final class AppContainer {
         self.transparency = PopoverTransparencyStore()
         self.privacy = MenuBarPrivacyStore()
         let displayNames = Dictionary(registry.providers.map { ($0.id, $0.displayName) }) { first, _ in first }
-        let addedAccounts = AddedAccounts()
+        let addedAccounts = AddedAccounts(cache: snapshotCache)
         let launchCards = AddedAccounts.cards(providers, identityKeys: accountAssembly.identityKeysByCard)
         let signedOutLocations = Dictionary(
             accountAssembly.claudeCards.compactMap { card in card.signedOutLocation.map { (card.id, $0) } }

@@ -120,11 +120,17 @@ was refused:
 | `GET /v1/accounts/signin` | — | **200** the status |
 | `POST /v1/accounts/add` | `{"tool":"claude"}` or `"codex"` | **202** started; **409** `sign_in_in_progress`; **500** `sign_in_failed` (missing CLI, folder or launch failure; `message` says which) |
 | `POST /v1/accounts/signin` | `{"providerId":"claude@…"}` | as above, plus **404** `provider_not_found` for a card that isn't signed out |
-| `POST /v1/accounts/signin/code` | `{"code":"…"}` | **202** passed on; **409** `no_sign_in` when nothing is waiting |
-| `POST /v1/accounts/signin/cancel` | — | **200**; stops a running sign-in or clears a finished one |
+| `POST /v1/accounts/signin/code` | `{"code":"…"}` | **202** passed on; **409** `no_sign_in` when nothing is waiting; **400** `bad_callback` for a pasted web address that isn't the sign-in's own return address |
+| `POST /v1/accounts/signin/cancel` | `{}` | **200** plain idle status; stops a running sign-in or clears a finished one |
 
 A body that isn't a JSON object with the named string field is **400** `bad_request`; a body over 16 KB
-is **413**. These routes have no auth or origin check, by the owner's call.
+is **413**. Only the accounts page this app serves may use these routes (see
+[CORS and privacy](#cors-and-privacy)); there is no password or token, by the owner's call.
+
+Paste Code takes either the code the sign-in page shows or, when the browser couldn't load its return
+page, that page's address. The app opens such an address itself only when it is exactly the return
+address named in the sign-in link (same host, port and path, with the sign-in's `code` and `state`),
+and never follows a redirect from it.
 
 ### Everything else
 
@@ -261,18 +267,28 @@ The in-app model breakdown shown when hovering spend rows is not included in thi
 
 Codes: `provider_not_found`, `not_found`, `method_not_allowed`, `server_busy`, `bad_request`,
 `request_body_too_large`, `request_header_too_large`, and for the sign-in routes `sign_in_in_progress`,
-`no_sign_in`, `sign_in_failed`.
+`no_sign_in`, `sign_in_failed`, `bad_callback`, `forbidden_host`, `forbidden_origin`,
+`unsupported_media_type`.
 
 ## CORS and privacy
 
-All responses include permissive CORS headers (`Access-Control-Allow-Origin: *`, methods `GET, OPTIONS`). `OPTIONS` requests return **204** for preflight.
+The usage routes include permissive CORS headers (`Access-Control-Allow-Origin: *`, methods `GET, OPTIONS`). `OPTIONS` requests return **204** for preflight.
 
 The server only listens on the loopback interface (`127.0.0.1`), so it is not reachable from other machines on your network. Because the CORS header is permissive, though, a web page open in your browser can read your usage snapshots from this API while the app is running. The data exposed is the same usage numbers shown in the menu bar — no credentials or tokens are ever served. This matches the original app's behavior so existing integrations keep working.
 
-The sign-in routes are not in the CORS methods, so another site's script can't send them JSON or read
-their answers, but nothing else checks who is asking: any program on this Mac, or a web page sending a
-plain form post, can start a sign-in or make an empty seat folder. A sign-in only finishes in your own
-browser, and no credential is ever served.
+The sign-in routes (`/v1/accounts/…`) are only for the accounts page this app serves, and refuse
+anything else:
+
+- the request must be addressed to `127.0.0.1:6736` or `localhost:6736` (its `Host`), or it gets
+  **403** `forbidden_host` — this stops a web site that points its own name at your Mac;
+- a request from a web page must come from that same address (its `Origin`), or it gets **403**
+  `forbidden_origin` — this stops other web sites;
+- a `POST` must send `Content-Type: application/json`, or it gets **415** `unsupported_media_type` —
+  this stops plain form posts, which browsers send without asking first;
+- their answers carry no CORS headers, so no other web site can read them.
+
+A program running on this Mac can still use them, as it could run the sign-in itself. A sign-in only
+finishes in your own browser, and no credential is ever served.
 
 ## Caching behavior
 

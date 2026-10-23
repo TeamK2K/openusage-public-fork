@@ -39,6 +39,9 @@ enum LocalUsageAPI {
         var status: Int
         var body: Data?
         var contentType = "application/json"
+        /// Sends the permissive CORS headers (`*`) existing integrations read the usage routes with.
+        /// The accounts sign-in routes turn it off: only their own page may use them.
+        var allowsAnyOrigin = true
     }
 
     static func respond(method: String, path: String, state: State) -> Response {

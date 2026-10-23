@@ -1,18 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { AccountCard } from '@/components/account-card'
 import AuthenticatorDialog from '@/components/shadcn-studio/blocks/dashboard-dialog-08/dialog-authenticator'
 import DropdownMenuAlignStartDemo from '@/components/shadcn-studio/dropdown-menu/dropdown-menu-09'
 import { buildPage, type Limits } from '@/lib/accounts'
 import { fit } from '@/lib/fit'
-import { IDLE, loadSignIn, needsRefresh, postSignIn, signInView, TOOLS, type SignIn } from '@/lib/signin'
+import { IDLE, loadSignIn, needsRefresh, postSignIn, sameSignIn, signInView, TOOLS, type SignIn } from '@/lib/signin'
 
 const REFRESH_MS = 30_000
 const SIGN_IN_POLL_MS = 1_500
 
 /** The accounts page: a top bar (title, Add Account), the which-account verdict, one card per account
- *  fitted on one screen (soonest reset first), and a one-line footer. Layout: dashboard-header-09. */
-export function App() {
+ *  fitted on one screen (soonest reset first), and a one-line footer. Layout: dashboard-header-09.
+ *  `signInPollMs` is how often a running sign-in is re-read (tests shorten it). */
+export function App({ signInPollMs = SIGN_IN_POLL_MS }: { signInPollMs?: number } = {}) {
   const [limits, setLimits] = useState<Limits | null>(null)
   const [unreachable, setUnreachable] = useState(false)
   const [signIn, setSignIn] = useState<SignIn>(IDLE)
@@ -34,6 +35,8 @@ export function App() {
 
   const showSignIn = useCallback((next: SignIn) => {
     const before = signInRef.current
+    // The poll mostly repeats what is shown; an unchanged status re-renders nothing.
+    if (sameSignIn(before, next)) return
     signInRef.current = next
     setSignIn(next)
     if (needsRefresh(before, next)) void refreshLimits()
@@ -61,18 +64,22 @@ export function App() {
   const view = signInView(signIn)
   useEffect(() => {
     if (!view.waiting) return
-    const poll = setInterval(async () => { const s = await loadSignIn(); if (s) showSignIn(s) }, SIGN_IN_POLL_MS)
+    const poll = setInterval(async () => { const s = await loadSignIn(); if (s) showSignIn(s) }, signInPollMs)
     return () => clearInterval(poll)
-  }, [view.waiting, showSignIn])
+  }, [view.waiting, showSignIn, signInPollMs])
 
-  const page = limits ? buildPage(limits, now) : null
-  // Fit after every render, and again two frames later, once the charts have measured themselves
-  // (they first draw at a placeholder size).
+  const page = useMemo(() => (limits ? buildPage(limits, now) : null), [limits, now])
+  const canSignIn = new Set(signIn.signInProviderIds || [])
+  // What the cards show: fitting again is only worth it when this changes (window and font changes
+  // refit below), never on a render that leaves the cards as they were, like a sign-in poll.
+  const cardsKey = useMemo(() => JSON.stringify(page) + '|' + (signIn.signInProviderIds || []).join(','), [page, signIn.signInProviderIds])
+  // Fit, and again two frames later, once the charts have measured themselves (they first draw at a
+  // placeholder size).
   useLayoutEffect(() => {
     fit(grid.current)
     let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => fit(grid.current)) })
     return () => cancelAnimationFrame(frame)
-  })
+  }, [cardsKey])
   // And whenever the window, the grid or the loaded font changes the room there is.
   useEffect(() => {
     let frame = 0
@@ -84,7 +91,6 @@ export function App() {
     return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', refit); observer?.disconnect() }
   }, [])
 
-  const canSignIn = new Set(signIn.signInProviderIds || [])
   return (
     <div id='page' className='flex min-h-dvh flex-col sm:h-dvh'>
       <header className='bg-card sticky top-0 z-50 border-b'>

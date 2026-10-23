@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// A running login CLI the accounts page can type into (a pasted code) and stop (Cancel, timeout).
@@ -44,6 +43,8 @@ final class AccountSignIn {
     /// A request the page can't have right now; the API maps each to an HTTP status and error code.
     enum Refusal: Error, Equatable {
         case busy, notWaiting, unknownProvider, emptyCode, startFailed
+        /// A pasted address that isn't this sign-in's own return address.
+        case foreignAddress
     }
 
     static let defaultTimeout: Duration = .seconds(600)
@@ -64,7 +65,8 @@ final class AccountSignIn {
     private let resolveExecutable: @MainActor (SeatTool) -> String?
     private let environment: @MainActor () -> [String: String]
     private let signedOutLocations: @MainActor () -> [String: String]
-    private let onSignedIn: @MainActor (SeatTool, String) async -> Void
+    /// Picks the new account up after a login; `false` when no new card was added.
+    private let onSignedIn: @MainActor (SeatTool, String) async -> Bool
     private let replayCallback: @Sendable (URL) async throws -> Int
     private let sleep: @Sendable (Duration) async throws -> Void
     private let timeout: Duration
@@ -80,8 +82,8 @@ final class AccountSignIn {
         resolveExecutable: @escaping @MainActor (SeatTool) -> String? = { AccountSignIn.findExecutable($0.rawValue) },
         environment: @escaping @MainActor () -> [String: String] = { AccountSignIn.loginEnvironment() },
         signedOutLocations: @escaping @MainActor () -> [String: String],
-        onSignedIn: @escaping @MainActor (SeatTool, String) async -> Void,
-        replayCallback: @escaping @Sendable (URL) async throws -> Int = AccountSignIn.replay,
+        onSignedIn: @escaping @MainActor (SeatTool, String) async -> Bool,
+        replayCallback: @escaping @Sendable (URL) async throws -> Int = SignInCallback.replay,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         timeout: Duration = AccountSignIn.defaultTimeout,
         now: @escaping () -> Date = Date.init
@@ -145,14 +147,22 @@ final class AccountSignIn {
         try start(.claude, seat: name, folder: folder, executable: executable)
     }
 
-    /// Paste Code: a code goes to the CLI's input. A `http://localhost…` address is the browser's failed
-    /// return to the CLI (Chrome answers HTTP 431 when localhost cookies are too big), so the app opens
-    /// that address itself, without cookies, which completes the same step.
+    /// Paste Code: a code goes to the CLI's input. The sign-in link's own `http://localhost…` return
+    /// address is the browser's failed return to the CLI (Chrome answers HTTP 431 when localhost cookies
+    /// are too big), so the app opens that address itself, without cookies, which completes the same
+    /// step. Any other address is refused (`SignInCallback`).
     func submit(code raw: String) throws(Refusal) {
         guard var session else { throw .notWaiting }
         let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { throw .emptyCode }
-        if let url = Self.loopbackCallback(code) {
+        switch SignInCallback.classify(code, signInURL: current.url) {
+        case .code:
+            break
+        case .foreign:
+            // The address may carry a one-time code: never logged.
+            AppLog.warn(.config, "accounts page: refused a pasted address that isn't the \(session.tool.rawValue) sign-in's return address")
+            throw .foreignAddress
+        case .callback(let url):
             let name = session.tool.displayName
             current.message = "Sending the sign-in page's address to \(name)…"
             let id = session.id
@@ -179,17 +189,16 @@ final class AccountSignIn {
         }
     }
 
-    /// Cancel a running sign-in (the CLI is stopped), or dismiss a finished one.
+    /// Cancel a running sign-in (the CLI is stopped), or dismiss a finished one. Either way the page goes
+    /// back to plain idle, with no message, so its dialog closes.
     func cancel() {
         if let session {
             session.timeoutTask?.cancel()
             session.process.terminate()
             self.session = nil
             AppLog.info(.config, "accounts page: \(session.tool.rawValue) sign-in cancelled")
-            current = Status(message: "Sign-in cancelled.")
-        } else {
-            current = Status()
         }
+        current = Status()
     }
 
     // MARK: - Process lifecycle
@@ -235,7 +244,8 @@ final class AccountSignIn {
         guard var session, session.id == id else { return }
         session.output = String((session.output + Self.stripANSI(text)).suffix(Self.outputLimit))
         self.session = session
-        if current.url == nil, let url = Self.firstSignInURL(in: session.output) {
+        // Re-read from all the output so far: the link may arrive split across several reads.
+        if let url = Self.firstSignInURL(in: session.output) {
             current.url = url
         }
     }
@@ -243,6 +253,9 @@ final class AccountSignIn {
     func exited(_ code: Int32, session id: Int) async {
         guard let session, session.id == id else { return }
         session.timeoutTask?.cancel()
+        if let url = Self.firstSignInURL(in: session.output, ended: true) {
+            current.url = url
+        }
         let folder = seats.shortened(session.folder)
         guard code == 0 else {
             self.session = nil
@@ -253,10 +266,16 @@ final class AccountSignIn {
             return
         }
         current.message = "Signed in. Loading the account…"
-        await onSignedIn(session.tool, session.folder)
+        let added = await onSignedIn(session.tool, session.folder)
         // Cancel pressed while the account loaded already reset the page; leave that as is.
         guard self.session?.id == id else { return }
         self.session = nil
+        guard added else {
+            AppLog.error(.config, "accounts page: \(session.tool.rawValue) login in \(folder) succeeded but discovery found no new account")
+            current.phase = .failed
+            current.message = "Signed in, but no new account was found. It may already be on the page, or the login wasn't saved."
+            return
+        }
         AppLog.info(.config, "accounts page: \(session.tool.rawValue) signed in at \(folder)")
         current.phase = .succeeded
         current.message = "Signed in at \(folder). The account's card is below."
@@ -318,18 +337,13 @@ final class AccountSignIn {
         return folders.lazy.filter { !$0.isEmpty }.map { $0 + "/" + name }.first(where: isExecutable)
     }
 
-    static func firstSignInURL(in output: String) -> String? {
-        guard let range = output.range(of: #"https://[^\s"'<>]+"#, options: .regularExpression) else { return nil }
-        return String(output[range])
-    }
-
-    /// A browser address back to a login CLI's own helper on this Mac (never this app's port).
-    static func loopbackCallback(_ text: String) -> URL? {
-        guard let url = URL(string: text), url.scheme == "http",
-              let host = url.host, ["localhost", "127.0.0.1", "::1"].contains(host),
-              url.port != Int(LocalUsageServer.port)
+    /// The first sign-in link in the output, once it's whole: something (a space, a line break, a quote)
+    /// follows it, or the CLI has `ended`. Until then the rest of the link may still be on its way.
+    static func firstSignInURL(in output: String, ended: Bool = false) -> String? {
+        guard let range = output.range(of: #"https://[^\s"'<>]+"#, options: .regularExpression),
+              ended || range.upperBound < output.endIndex
         else { return nil }
-        return url
+        return String(output[range])
     }
 
     static func stripANSI(_ text: String) -> String {
@@ -341,77 +355,5 @@ final class AccountSignIn {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .last(where: { !$0.isEmpty })
             .map { String($0.prefix(300)) }
-    }
-
-    /// Opens a pasted callback address with no cookies (the whole point: the browser's cookies were
-    /// what made it fail) and returns the HTTP status.
-    @Sendable static func replay(_ url: URL) async throws -> Int {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieAcceptPolicy = .never
-        configuration.timeoutIntervalForRequest = 15
-        let session = URLSession(configuration: configuration)
-        defer { session.finishTasksAndInvalidate() }
-        let (_, response) = try await session.data(from: url)
-        return (response as? HTTPURLResponse)?.statusCode ?? 0
-    }
-}
-
-// MARK: - The real process
-
-final class SystemSignInProcess: SignInProcess {
-    private let process: Process
-    private let input: FileHandle
-
-    init(process: Process, input: FileHandle) {
-        self.process = process
-        self.input = input
-    }
-
-    func write(_ text: String) throws {
-        guard process.isRunning else { throw CocoaError(.fileWriteUnknown) }
-        try input.write(contentsOf: Data(text.utf8))
-    }
-
-    func terminate() {
-        guard process.isRunning else { return }
-        SystemProcessRunner.terminateProcessTree(rootPID: process.processIdentifier)
-        process.terminate()
-    }
-}
-
-struct SystemSignInLauncher: SignInLaunching {
-    func launch(
-        executable: String,
-        arguments: [String],
-        environment: [String: String],
-        onOutput: @escaping @Sendable (String) -> Void,
-        onExit: @escaping @Sendable (Int32) -> Void
-    ) throws -> any SignInProcess {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.environment = environment
-        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-        // A code pasted after the CLI quit must fail the write, not SIGPIPE the whole app.
-        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = stderr
-        for pipe in [stdout, stderr] {
-            pipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                } else {
-                    onOutput(String(decoding: data, as: UTF8.self))
-                }
-            }
-        }
-        process.terminationHandler = { process in onExit(process.terminationStatus) }
-        // Arg values carry no secrets here, but keep the runner's convention: basename + count only.
-        AppLog.debug(.subprocess, "launch \((executable as NSString).lastPathComponent) (\(arguments.count) args)")
-        try process.run()
-        return SystemSignInProcess(process: process, input: stdin.fileHandleForWriting)
     }
 }

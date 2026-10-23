@@ -2,7 +2,7 @@ import XCTest
 @testable import OpenUsage
 
 /// In-memory home folder: records every folder and file the seat code makes.
-private final class FakeSeatFiles: SeatFileSystem, @unchecked Sendable {
+final class FakeSeatFiles: SeatFileSystem, @unchecked Sendable {
     private let lock = NSLock()
     private var paths: Set<String>
     private(set) var createdDirectories: [String] = []
@@ -39,7 +39,7 @@ private final class FakeSeatFiles: SeatFileSystem, @unchecked Sendable {
 }
 
 @MainActor
-private final class FakeProcess: SignInProcess {
+final class FakeProcess: SignInProcess {
     var written: [String] = []
     var terminated = false
     func write(_ text: String) throws { written.append(text) }
@@ -47,7 +47,7 @@ private final class FakeProcess: SignInProcess {
 }
 
 @MainActor
-private final class FakeLauncher: SignInLaunching {
+final class FakeLauncher: SignInLaunching {
     struct Launch {
         let executable: String
         let arguments: [String]
@@ -70,7 +70,7 @@ private final class FakeLauncher: SignInLaunching {
 }
 
 /// Lets the test release the sign-in timeout on demand instead of waiting ten minutes.
-private final class TimeoutGate: @unchecked Sendable {
+final class TimeoutGate: @unchecked Sendable {
     private let lock = NSLock()
     private var waiters: [CheckedContinuation<Void, Error>] = []
 
@@ -91,12 +91,15 @@ private final class TimeoutGate: @unchecked Sendable {
 
 @MainActor
 final class AccountSignInTests: XCTestCase {
-    private var files: FakeSeatFiles!
-    private var launcher: FakeLauncher!
-    private var gate: TimeoutGate!
-    private var signedIn: [(SeatTool, String)] = []
-    private var replayed: [URL] = []
-    private var signedOut: [String: String] = [:]
+    var files: FakeSeatFiles!
+    var launcher: FakeLauncher!
+    var gate: TimeoutGate!
+    var signedIn: [(SeatTool, String)] = []
+    var replayed: [URL] = []
+    var signedOut: [String: String] = [:]
+    /// What the app's pick-up after a login answers: whether a new card was added.
+    var addsCard = true
+    var replayStatus = 200
     private var executables: [SeatTool: String] = [.claude: "/opt/bin/claude", .codex: "/opt/bin/codex"]
 
     override func setUp() async throws {
@@ -106,9 +109,11 @@ final class AccountSignInTests: XCTestCase {
         signedIn = []
         replayed = []
         signedOut = [:]
+        addsCard = true
+        replayStatus = 200
     }
 
-    private func makeSignIn() -> AccountSignIn {
+    func makeSignIn() -> AccountSignIn {
         let gate = gate!
         return AccountSignIn(
             seats: AccountSeats(home: files.home, files: files),
@@ -116,8 +121,8 @@ final class AccountSignInTests: XCTestCase {
             resolveExecutable: { [unowned self] in self.executables[$0] },
             environment: { ["PATH": "/opt/bin", "ANTHROPIC_API_KEY": "sk-test", "CODEX_HOME": "/elsewhere", "HOME": "/Users/me"] },
             signedOutLocations: { [unowned self] in self.signedOut },
-            onSignedIn: { [unowned self] tool, folder in self.signedIn.append((tool, folder)) },
-            replayCallback: { @MainActor [unowned self] url in self.replayed.append(url); return 200 },
+            onSignedIn: { [unowned self] tool, folder in self.signedIn.append((tool, folder)); return self.addsCard },
+            replayCallback: { @MainActor [unowned self] url in self.replayed.append(url); return self.replayStatus },
             sleep: { try await gate.sleep($0) },
             now: { Date(timeIntervalSince1970: 1_800_000_000) }
         )
@@ -259,20 +264,21 @@ final class AccountSignInTests: XCTestCase {
         try signIn.add(.claude)
         signIn.cancel()
         XCTAssertTrue(try XCTUnwrap(launcher.launches.first).process.terminated)
-        XCTAssertEqual(signIn.status.phase, .idle)
+        // Plain idle with no message: the page's dialog shows for any message, so one would keep it open.
+        XCTAssertEqual(signIn.status, AccountSignIn.Status())
         XCTAssertNoThrow(try signIn.add(.codex))
     }
 
     func testPastingAFailedLocalhostPageReplaysItInsteadOfTypingIt() async throws {
         let signIn = makeSignIn()
         try signIn.add(.codex)
-        try signIn.submit(code: "http://localhost:1455/auth/callback?code=xyz&state=s")
+        let launch = try XCTUnwrap(launcher.launches.first)
+        launch.output("navigate to this URL to authenticate: \(Self.codexLink)\n")
+        await settle { signIn.status.url != nil }
+        try signIn.submit(code: "http://localhost:1455/auth/callback?code=xyz&state=s1")
         await settle { !replayed.isEmpty }
-        XCTAssertEqual(replayed.map(\.absoluteString), ["http://localhost:1455/auth/callback?code=xyz&state=s"])
-        XCTAssertTrue(try XCTUnwrap(launcher.launches.first).process.written.isEmpty)
-        // Never this app's own port, never another host.
-        XCTAssertNil(AccountSignIn.loopbackCallback("http://127.0.0.1:6736/v1/accounts/add"))
-        XCTAssertNil(AccountSignIn.loopbackCallback("http://example.com/callback"))
+        XCTAssertEqual(replayed.map(\.absoluteString), ["http://localhost:1455/auth/callback?code=xyz&state=s1"])
+        XCTAssertTrue(launch.process.written.isEmpty)
     }
 
     func testCodeWithNoSignInIsRefused() {
@@ -315,7 +321,7 @@ final class AccountSignInTests: XCTestCase {
 
     // MARK: HTTP routes
 
-    private func call(_ signIn: AccountSignIn, _ method: String, _ path: String, _ body: String = "") throws -> (Int, [String: Any]) {
+    func call(_ signIn: AccountSignIn, _ method: String, _ path: String, _ body: String = "") throws -> (Int, [String: Any]) {
         let response = AccountsAPI.respond(method: method, path: path, body: Data(body.utf8), signIn: signIn)
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(response.body)) as? [String: Any])
         return (response.status, object)
@@ -404,12 +410,11 @@ final class AccountSignInTests: XCTestCase {
         let suite = "AccountSignInTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let added = AddedAccounts()
-        await added.install(
-            [provider], identityKeys: ["claude@bb": "u2"],
+        let added = AddedAccounts(
             cache: ProviderSnapshotCache(userDefaults: defaults, storageKey: "snapshots", ttl: 600, now: { Date() }),
             defaults: defaults
         )
+        await added.install([provider], identityKeys: ["claude@bb": "u2"])
 
         var state = LocalUsageAPI.State(
             enabledOrderedIDs: ["claude"], knownIDs: ["claude", "claude@bb"], snapshots: [:],
@@ -426,7 +431,7 @@ final class AccountSignInTests: XCTestCase {
 
 /// A Claude-family card with a fixed snapshot, for the added-accounts store.
 @MainActor
-private final class StubAccountProvider: ProviderRuntime {
+final class StubAccountProvider: ProviderRuntime {
     let provider: Provider
     init(id: String, name: String) {
         provider = Provider(id: id, displayName: name, icon: .providerMark("claude"))

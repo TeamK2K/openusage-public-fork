@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from '@/App'
 import type { Limits } from '@/lib/accounts'
+import { fit } from '@/lib/fit'
 import type { SignIn } from '@/lib/signin'
+
+// The real fit, counted.
+vi.mock('@/lib/fit', async importOriginal => {
+  const real = await importOriginal<typeof import('@/lib/fit')>()
+  return { ...real, fit: vi.fn(real.fit) }
+})
 
 const now = Date.now()
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString()
@@ -22,19 +29,27 @@ const limits: Limits = {
   errors: [{ providerId: 'claude@gone', displayName: 'Claude: gone@x.com', message: 'Signed Out. Last signed in at ~/.claude-seat2.' }]
 }
 
-type Call = { url: string; method: string; body: unknown }
+type Call = { url: string; method: string; body: unknown; contentType?: string }
 
-function serve(answers: { limits?: Limits | 'down'; signIn?: SignIn; post?: (call: Call) => SignIn }) {
+function serve(answers: { limits?: Limits | 'down'; signIn?: SignIn | ((n: number) => SignIn); post?: (call: Call) => SignIn }) {
   const calls: Call[] = []
-  let signIn: SignIn = answers.signIn ?? { phase: 'idle', signInProviderIds: ['claude@gone'] }
+  let reads = 0
+  const read = typeof answers.signIn === 'function' ? answers.signIn : undefined
+  let signIn: SignIn = (typeof answers.signIn === 'object' && answers.signIn) || { phase: 'idle', signInProviderIds: ['claude@gone'] }
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    const call = { url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined }
+    const call = {
+      url,
+      method: init?.method ?? 'GET',
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      contentType: new Headers(init?.headers).get('Content-Type') ?? undefined
+    }
     calls.push(call)
     if (url === '/v1/limits') {
       if (answers.limits === 'down') throw new TypeError('Failed to fetch')
       return Response.json(answers.limits ?? limits)
     }
     if (call.method === 'POST' && answers.post) signIn = answers.post(call)
+    if (call.method === 'GET' && read) signIn = read(reads++)
     return Response.json(signIn)
   }))
   return calls
@@ -75,8 +90,9 @@ describe('the accounts page', () => {
 
   it('adds an account, takes a pasted code, and cancels', async () => {
     const calls = serve({
+      // Cancel answers exactly what the app sends: plain idle, the Sign In buttons, no message.
       post: call => call.url.endsWith('/cancel')
-        ? { phase: 'idle', signInProviderIds: [] }
+        ? { phase: 'idle', signInProviderIds: ['claude@gone'] }
         : { phase: 'waiting', tool: 'codex', folder: '~/.codex-seat3', url: 'https://auth.example/login', message: 'Waiting for sign-in…' }
     })
     render(<App />)
@@ -95,6 +111,29 @@ describe('the accounts page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(calls.some(c => c.url === '/v1/accounts/signin/cancel')).toBe(true))
     await waitFor(() => expect(screen.queryByText('Waiting for sign-in…')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Every POST says it is JSON: the app refuses any other sign-in request.
+    for (const post of calls.filter(c => c.method === 'POST')) expect(post.contentType).toBe('application/json')
+  })
+
+  it('does not refit the cards while a running sign-in is polled', async () => {
+    // Each poll answers a little differently (the link arriving, a notice), so the page does re-render;
+    // the cards stay the same, so they are not fitted again.
+    const calls = serve({
+      signIn: n => ({ phase: 'waiting', tool: 'codex', message: `Waiting for sign-in… (${n})`, signInProviderIds: ['claude@gone'] })
+    })
+    render(<App signInPollMs={20} />)
+    await screen.findByText('Use a@x.com')
+    await waitFor(() => expect(fit).toHaveBeenCalled())
+    // Let the frame-later refits settle, then count.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const fitted = vi.mocked(fit).mock.calls.length
+    // The poll number the dialog shows: it climbing proves the page re-rendered.
+    const shown = () => Number(/\((\d+)\)/.exec(document.body.textContent ?? '')?.[1] ?? -1)
+    const before = shown()
+    await waitFor(() => expect(shown()).toBeGreaterThan(before + 2))
+    expect(calls.some(c => c.url === '/v1/accounts/signin')).toBe(true)
+    expect(vi.mocked(fit).mock.calls.length).toBe(fitted)
   })
 
   it('says so when the app is not answering', async () => {

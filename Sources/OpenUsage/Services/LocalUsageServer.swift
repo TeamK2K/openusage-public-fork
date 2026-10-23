@@ -8,7 +8,7 @@ import Network
 /// connection gets `503 {"error":"server_busy"}` immediately.
 @MainActor
 final class LocalUsageServer {
-    static let port: UInt16 = 6736
+    nonisolated static let port: UInt16 = 6736
     private static let maxConcurrentConnections = 16
     /// Browsers send every cookie set for `127.0.0.1` by any local dev server, whatever its port, so
     /// a real Chrome request head runs to tens of KB. 8 KB reset those connections ("This site can't
@@ -21,6 +21,8 @@ final class LocalUsageServer {
     private let state: @MainActor () -> LocalUsageAPI.State
     /// The accounts page's sign-in flow (`/v1/accounts/…`); `nil` leaves those routes unserved.
     private let accounts: AccountSignIn?
+    /// `port` normally; tests pass 0 for any free port (`listeningPort` then names it).
+    private let requestedPort: UInt16
     private let queue = DispatchQueue(label: "openusage.local-api")
     private var listener: NWListener?
     private var activeConnections = 0
@@ -28,16 +30,24 @@ final class LocalUsageServer {
     /// port taken), or once the listener stops.
     private(set) var isListening = false
 
-    init(state: @escaping @MainActor () -> LocalUsageAPI.State, accounts: AccountSignIn? = nil) {
+    init(
+        state: @escaping @MainActor () -> LocalUsageAPI.State,
+        accounts: AccountSignIn? = nil,
+        port: UInt16 = LocalUsageServer.port
+    ) {
         self.state = state
         self.accounts = accounts
+        self.requestedPort = port
     }
+
+    /// The port actually bound, once listening.
+    var listeningPort: UInt16? { listener?.port?.rawValue }
 
     func start() {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
             host: "127.0.0.1",
-            port: NWEndpoint.Port(rawValue: Self.port)!
+            port: NWEndpoint.Port(rawValue: requestedPort) ?? .any
         )
 
         let listener: NWListener
@@ -73,6 +83,11 @@ final class LocalUsageServer {
         }
         listener.start(queue: queue)
         self.listener = listener
+    }
+
+    func stop() {
+        listener?.cancel()
+        listener = nil
     }
 
     private func accept(_ connection: NWConnection) {
@@ -134,6 +149,10 @@ final class LocalUsageServer {
         // (a pasted sign-in code) is never logged.
         AppLog.debug(.localAPI, "\(method) \(path)")
         if let accounts, AccountsAPI.handles(path: path) {
+            // Only the page this server serves may drive a sign-in: no other site, no rebound host name.
+            if let refusal = AccountsAPI.refusal(method: method, head: head, port: listeningPort ?? requestedPort) {
+                return refusal
+            }
             return AccountsAPI.respond(method: method, path: path, body: body, signIn: accounts)
         }
         return LocalUsageAPI.respond(method: method, path: path, state: state())
@@ -141,16 +160,19 @@ final class LocalUsageServer {
 
     /// The request's `Content-Length` (0 when absent); `nil` for a malformed value.
     nonisolated static func contentLength(_ head: String) -> Int? {
-        for line in head.split(separator: "\r\n").dropFirst() {
+        guard let raw = headerValues("content-length", in: head).first else { return 0 }
+        guard let value = Int(raw), value >= 0 else { return nil }
+        return value
+    }
+
+    /// Every value of the header `name` (case-insensitive) in the request head, trimmed, in order.
+    nonisolated static func headerValues(_ name: String, in head: String) -> [String] {
+        head.split(separator: "\r\n").dropFirst().compactMap { line in
             guard let colon = line.firstIndex(of: ":"),
-                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == "content-length"
-            else { continue }
-            guard let value = Int(line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)), value >= 0 else {
-                return nil
-            }
-            return value
+                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == name
+            else { return nil }
+            return line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
-        return 0
     }
 
     /// Parse the HTTP request line into `(method, path)`. Tolerates an empty/malformed head: a
@@ -183,19 +205,23 @@ final class LocalUsageServer {
         case 202: "Accepted"
         case 204: "No Content"
         case 400: "Bad Request"
+        case 403: "Forbidden"
         case 404: "Not Found"
         case 405: "Method Not Allowed"
         case 409: "Conflict"
         case 413: "Content Too Large"
+        case 415: "Unsupported Media Type"
         case 431: "Request Header Fields Too Large"
         case 500: "Internal Server Error"
         case 503: "Service Unavailable"
         default: "OK"
         }
         var head = "HTTP/1.1 \(response.status) \(reason)\r\n"
-        head += "Access-Control-Allow-Origin: *\r\n"
-        head += "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
-        head += "Access-Control-Allow-Headers: Content-Type\r\n"
+        if response.allowsAnyOrigin {
+            head += "Access-Control-Allow-Origin: *\r\n"
+            head += "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+            head += "Access-Control-Allow-Headers: Content-Type\r\n"
+        }
         head += "Connection: close\r\n"
         if let body = response.body {
             head += "Content-Type: \(response.contentType)\r\n"

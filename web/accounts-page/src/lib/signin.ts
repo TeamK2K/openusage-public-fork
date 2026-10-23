@@ -73,6 +73,13 @@ export function signInView(s: SignIn): SignInView {
   }
 }
 
+const FIELDS = ['phase', 'tool', 'seat', 'folder', 'url', 'message', 'startedAt', 'error'] as const
+
+/** Whether two statuses say the same thing (the 1.5 s poll mostly answers what the page already shows). */
+export function sameSignIn(a: SignIn, b: SignIn): boolean {
+  return FIELDS.every(k => a[k] === b[k]) && (a.signInProviderIds || []).join(',') === (b.signInProviderIds || []).join(',')
+}
+
 /** A sign-in that ended (the new card) or Sign In buttons that changed: the cards need a redraw. */
 export function needsRefresh(before: SignIn, after: SignIn): boolean {
   const ended = before.phase !== after.phase && before.phase !== 'idle'

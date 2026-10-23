@@ -89,8 +89,9 @@ Claude Swap's, not a config folder. Restart OpenUsage after adding or removing a
 OpenUsage remembers every Claude account it has seen. If one has no login on this Mac at launch (for
 example the default login was later signed in to a different account), it stays on the accounts
 page and in the app as a **Signed Out** card naming where it was last signed in, instead of
-disappearing. It reads no credentials. Sign the account in again (a `~/.claude-<name>` folder is
-the safest place) and restart OpenUsage to bring it back. Codex accounts are not covered yet.
+disappearing. It reads no credentials. **Sign In** on its card on the accounts page signs it in again
+(in its own `~/.claude-<name>` folder when it had one) and brings it back without a restart; the menu
+bar picks it up on its next launch. Codex accounts are not covered yet.
 
 ## Claude Swap accounts
 
