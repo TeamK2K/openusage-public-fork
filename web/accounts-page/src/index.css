@@ -163,3 +163,10 @@ html[data-fit='scroll'] #cards {
     @apply font-sans;
     }
 }
+/* A chart's box is sized by its classes alone: recharts re-measures on the next render, so its stale
+   pixel size must never push the card's text around while fit() searches for a layout. */
+[data-slot="chart"] {
+  contain: size;
+  overflow: hidden;
+  flex-shrink: 0; /* size containment drops its min-content width, so flex would squeeze it to nothing */
+}

@@ -24,6 +24,9 @@ export function overflowing(grid: HTMLElement, scrolling = false): boolean {
     if (clipped(card, !scrolling)) return true
     for (const e of Array.from(card.querySelectorAll('*'))) {
       if (e.clientWidth === 0 && e.clientHeight === 0) continue // inline and SVG boxes report no size
+      // Charts size themselves on React's next render, so mid-search they still carry the previous
+      // layout's size; `index.css` gives each chart box size containment, so only text can be cut off.
+      if (e.closest('[data-slot="chart"]')) continue
       if (clipped(e, true)) return true
     }
   }
